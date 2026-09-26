@@ -370,6 +370,9 @@ export class BumperQuestEngine {
   public resize() {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     const rect = this.canvas.getBoundingClientRect();
+    const oldW = this.width || 800;
+    const oldH = this.height || 800;
+
     this.width = rect.width || 800;
     this.height = rect.height || 800;
 
@@ -378,16 +381,47 @@ export class BumperQuestEngine {
     this.ctx.resetTransform?.();
     this.ctx.scale(dpr, dpr);
 
-    // Update center turntable coords
+    const isPortrait = this.height > this.width;
+
+    // Dynamically calculate turntable radius based on portrait / landscape orientation
+    // On phones, keeps the record from hogging the narrow horizontal width
+    const lpRadius = isPortrait
+      ? Math.min(this.width * 0.19, this.height * 0.10)
+      : Math.min(this.height * 0.19, this.width * 0.13);
+    this.turntable.baseLPRadius = Math.max(54, Math.min(115, lpRadius));
+    this.turntable.targetRadius = this.turntable.baseLPRadius;
+    this.turntable.radius = this.turntable.baseLPRadius;
     this.turntable.x = this.width / 2;
     this.turntable.y = this.height / 2;
-    this.turntable.radius = Math.min(this.width, this.height) * 0.16;
-    this.spider.orbitRadius = this.turntable.radius + 32;
+    this.spider.orbitRadius = this.turntable.radius + (isPortrait ? 24 : 32);
 
+    // Refresh all field entities with responsive orientation math
     this.setupFlippers();
     this.setupPinwheels();
     this.setupTopCornerGadgets();
     this.setupNeedleArm();
+    this.setupElectricFences();
+    this.setupHazards();
+
+    // Scale existing dots if screen resized or rotated
+    if (this.dots && this.dots.length > 0 && oldW > 0 && oldH > 0 && (oldW !== this.width || oldH !== this.height)) {
+      const scaleX = this.width / oldW;
+      const scaleY = this.height / oldH;
+      for (const dot of this.dots) {
+        dot.x = this.width / 2 + (dot.x - oldW / 2) * scaleX;
+        dot.y = this.height / 2 + (dot.y - oldH / 2) * scaleY;
+        dot.x = Math.max(28, Math.min(this.width - 28, dot.x));
+        dot.y = Math.max(28, Math.min(this.height - 28, dot.y));
+      }
+    }
+
+    // Keep active balls safely within new arena dimensions
+    if (this.balls) {
+      for (const b of this.balls) {
+        b.x = Math.max(28, Math.min(this.width - 28, b.x));
+        b.y = Math.max(28, Math.min(this.height - 28, b.y));
+      }
+    }
   }
 
   public initEntities() {
@@ -504,12 +538,14 @@ export class BumperQuestEngine {
     const w = this.width;
     const h = this.height;
     const isPortrait = h > w;
-    const flipperLen = Math.min(w, h) * (isPortrait ? 0.16 : 0.15);
+    const flipperLen = isPortrait
+      ? Math.min(w * 0.22, h * 0.09)
+      : Math.min(h * 0.20, w * 0.12);
 
-    const marginX = isPortrait ? w * 0.14 : w * 0.12;
-    // Safe margins away from the top status bar and bottom apron flairs
-    const topMarginY = isPortrait ? Math.max(72, h * 0.12) : h * 0.13;
-    const bottomMarginY = isPortrait ? Math.min(h - 64, h * 0.86) : h * 0.86;
+    const marginX = isPortrait ? Math.max(28, w * 0.12) : Math.max(45, w * 0.12);
+    // Safe margins away from the top status bar/banners and bottom apron flairs
+    const topMarginY = isPortrait ? Math.max(95, h * 0.14) : Math.max(48, h * 0.13);
+    const bottomMarginY = isPortrait ? Math.min(h - 72, h * 0.85) : Math.min(h - 45, h * 0.86);
 
     this.flippers = [
       {
@@ -575,15 +611,14 @@ export class BumperQuestEngine {
     const w = this.width;
     const h = this.height;
     const isPortrait = h > w;
-    const marginX = isPortrait ? w * 0.14 : w * 0.12;
-    const bottomMarginY = isPortrait ? Math.min(h - 64, h * 0.86) : h * 0.86;
+    const marginX = isPortrait ? Math.max(28, w * 0.12) : Math.max(45, w * 0.12);
+    const bottomMarginY = isPortrait ? Math.min(h - 72, h * 0.85) : Math.min(h - 45, h * 0.86);
 
     // Placed in the bottom corners directly under the lower flipper pivots
-    const leftX = Math.max(34, marginX * 0.60);
-    const rightX = Math.min(w - 34, w - marginX * 0.60);
-    const pinwheelY = Math.min(h - 26, bottomMarginY + (h - bottomMarginY) * 0.48);
-    // 25% smaller radical pinwheel turbines
-    const r = Math.min(22, Math.max(16, Math.min(w, h) * 0.038)) * 0.75;
+    const leftX = Math.max(26, marginX * 0.58);
+    const rightX = Math.min(w - 26, w - marginX * 0.58);
+    const pinwheelY = Math.min(h - 24, bottomMarginY + (h - bottomMarginY) * 0.46);
+    const r = Math.min(18, Math.max(13, Math.min(w, h) * 0.030));
 
     this.pinwheels = [
       {
@@ -617,14 +652,14 @@ export class BumperQuestEngine {
     const w = this.width;
     const h = this.height;
     const isPortrait = h > w;
-    const marginX = isPortrait ? w * 0.14 : w * 0.12;
-    const topMarginY = isPortrait ? Math.max(72, h * 0.12) : h * 0.13;
+    const marginX = isPortrait ? Math.max(28, w * 0.12) : Math.max(45, w * 0.12);
+    const topMarginY = isPortrait ? Math.max(95, h * 0.14) : Math.max(48, h * 0.13);
 
-    // Placed in top corners symmetrically opposite bottom pinwheels
-    const leftX = Math.max(34, marginX * 0.60);
-    const rightX = Math.min(w - 34, w - marginX * 0.60);
-    const gadgetY = Math.max(26, topMarginY * 0.48);
-    const r = Math.min(22, Math.max(16, Math.min(w, h) * 0.038)) * 0.95;
+    // Placed in top corners safely above the flipper sweep and clear of banners
+    const leftX = Math.max(24, marginX * 0.58);
+    const rightX = Math.min(w - 24, w - marginX * 0.58);
+    const gadgetY = Math.max(28, topMarginY * 0.44);
+    const r = Math.min(20, Math.max(14, Math.min(w, h) * 0.032));
 
     // Top-Left Laser Slicer (Engages 5s every 30s)
     this.slicer = {
@@ -660,8 +695,8 @@ export class BumperQuestEngine {
     const pivotY = cy - r * 1.12;
 
     // Extended cue position onto the compact 45 RPM record
-    const stylusExtendedX = cx + 50;
-    const stylusExtendedY = cy - 25;
+    const stylusExtendedX = cx + r * 0.45;
+    const stylusExtendedY = cy - r * 0.22;
     const dx = stylusExtendedX - pivotX;
     const dy = stylusExtendedY - pivotY;
     const length = Math.hypot(dx, dy);
@@ -768,12 +803,17 @@ export class BumperQuestEngine {
   private setupElectricFences() {
     const cx = this.width / 2;
     const cy = this.height / 2;
-    const s = Math.min(this.width, this.height) * 0.36;
+    const isPortrait = this.height > this.width;
 
-    // 20% size reduction: halfWidth reduced from s * 0.45 down to s * 0.36
-    const halfWidth = s * 0.36;
-    const topBaseY = cy - s * 0.72;
-    const botBaseY = cy + s * 0.72;
+    const vertOffset = isPortrait
+      ? Math.min(this.height * 0.19, this.width * 0.44)
+      : Math.min(this.height * 0.25, this.width * 0.18);
+    const halfWidth = isPortrait
+      ? Math.min(this.width * 0.22, 90)
+      : Math.min(this.height * 0.16, 120);
+
+    const topBaseY = cy - vertOffset;
+    const botBaseY = cy + vertOffset;
 
     this.fences = [
       // Top Bumper directly above the record (moves up/down and side-to-side independently)
@@ -815,8 +855,11 @@ export class BumperQuestEngine {
     this.dots = [];
     const cx = this.width / 2;
     const cy = this.height / 2;
-    const rOuter = Math.min(this.width, this.height) * 0.38;
-    const rInner = this.turntable.baseLPRadius + 40;
+    const isPortrait = this.height > this.width;
+    const rOuter = isPortrait 
+      ? Math.min(this.width * 0.40, this.height * 0.24) 
+      : Math.min(this.height * 0.38, this.width * 0.26);
+    const rInner = this.turntable.baseLPRadius + (isPortrait ? 26 : 38);
 
     // Refined, clean, elegant arcade constellation dots - NEVER a dense glob!
     if (wave === 1) {
@@ -1107,18 +1150,23 @@ export class BumperQuestEngine {
 
     const cx = this.width / 2;
     const cy = this.height / 2;
-    const s = Math.min(this.width, this.height) * 0.36;
+    const isPortrait = this.height > this.width;
 
-    // 20% size reduction: halfWidth is s * 0.36 (80% of original s * 0.45)
-    const halfWidth = s * 0.36;
-    const topBaseY = cy - s * 0.72;
-    const botBaseY = cy + s * 0.72;
+    const vertOffset = isPortrait
+      ? Math.min(this.height * 0.19, this.width * 0.44)
+      : Math.min(this.height * 0.25, this.width * 0.18);
+    const halfWidth = isPortrait
+      ? Math.min(this.width * 0.22, 90)
+      : Math.min(this.height * 0.16, 120);
+
+    const topBaseY = cy - vertOffset;
+    const botBaseY = cy + vertOffset;
 
     const topBumper = this.fences[0];
     const botBumper = this.fences[1];
 
-    const maxVertTravel = 40; // Glides 40px further from the record toward the gutter drain to relieve drain pressure!
-    const maxSideTravel = 52; // Glides 52px side-to-side on opposite sides of one another
+    const maxVertTravel = isPortrait ? Math.min(36, this.height * 0.045) : 32;
+    const maxSideTravel = isPortrait ? Math.min(42, this.width * 0.11) : 52;
 
     // Cycle alternator for horizontal side (cycles between Left/Right every 60s)
     const sideDir = Math.floor((performance.now() * 0.001) / 60.0) % 2 === 0 ? 1 : -1;
@@ -2810,16 +2858,18 @@ export class BumperQuestEngine {
       const baseX = f.baseX ?? (this.width / 2);
       const baseY = f.baseY ?? (isTop ? this.height / 2 - 145 : this.height / 2 + 145);
 
+      const isPortrait = this.height > this.width;
       // Vertical excursion range: top bumper extends upward toward top drain; bottom extends downward toward bottom drain
-      const vertMax = 44;
+      const vertMax = isPortrait ? Math.min(38, this.height * 0.045) : 36;
       const trackTop = isTop ? baseY - vertMax : baseY - 6;
       const trackBot = isTop ? baseY + 6 : baseY + vertMax;
 
       ctx.save();
 
       // 1. Horizontal Traverse Guide Rail (showing side-to-side travel capability)
-      const travLeft = baseX - 110;
-      const travRight = baseX + 110;
+      const travSpan = isPortrait ? Math.min(80, this.width * 0.20) : 110;
+      const travLeft = baseX - travSpan;
+      const travRight = baseX + travSpan;
       ctx.strokeStyle = 'rgba(100, 116, 139, 0.28)';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -4289,24 +4339,25 @@ export class BumperQuestEngine {
       }
 
       // Status labels beneath
-      ctx.font = '700 6px "Press Start 2P", monospace';
+      const isNarrow = this.width < 500;
+      ctx.font = `700 ${isNarrow ? '5px' : '6px'} "Press Start 2P", monospace`;
       ctx.textAlign = 'center';
       if (isEngaged) {
         ctx.fillStyle = '#00f3ff';
         ctx.shadowColor = '#00f3ff';
         ctx.shadowBlur = 6;
-        ctx.fillText('⚔️ ROTARY SAW [ON]', 0, s.radius + 16);
-        ctx.font = '700 5px "Press Start 2P", monospace';
+        ctx.fillText(isNarrow ? '⚔️ SAW ON' : '⚔️ ROTARY SAW [ON]', 0, s.radius + (isNarrow ? 12 : 16));
+        ctx.font = `700 ${isNarrow ? '4.5px' : '5px'} "Press Start 2P", monospace`;
         ctx.fillStyle = '#ff0055';
-        ctx.fillText(`${Math.ceil(s.cycleTimer)}s LEFT`, 0, s.radius + 25);
+        ctx.fillText(`${Math.ceil(s.cycleTimer)}s LEFT`, 0, s.radius + (isNarrow ? 19 : 25));
       } else {
         const secToEngage = Math.max(1, Math.ceil((s.cycleTimer ?? 25) - 5));
         ctx.fillStyle = '#94a3b8';
         ctx.shadowBlur = 0;
-        ctx.fillText('ROTARY SAW IDLE', 0, s.radius + 16);
-        ctx.font = '700 5px "Press Start 2P", monospace';
+        ctx.fillText(isNarrow ? 'SAW IDLE' : 'ROTARY SAW IDLE', 0, s.radius + (isNarrow ? 12 : 16));
+        ctx.font = `700 ${isNarrow ? '4.5px' : '5px'} "Press Start 2P", monospace`;
         ctx.fillStyle = '#00f3ff';
-        ctx.fillText(`⚡ IN ${secToEngage}s`, 0, s.radius + 25);
+        ctx.fillText(`⚡ IN ${secToEngage}s`, 0, s.radius + (isNarrow ? 19 : 25));
       }
 
       ctx.restore();
@@ -4402,13 +4453,14 @@ export class BumperQuestEngine {
         ctx.fillText(`${Math.ceil(minTimer)}s`, 0, 0);
 
         // Status labels beneath
-        ctx.font = '700 6px "Press Start 2P", monospace';
+        const isNarrow = this.width < 500;
+        ctx.font = `700 ${isNarrow ? '5px' : '6px'} "Press Start 2P", monospace`;
         ctx.fillStyle = '#c084fc';
         ctx.shadowBlur = 4;
-        ctx.fillText(capturedList.length > 1 ? `🔒 ${capturedList.length} CAPTURED` : '🔒 STASIS LOCK', 0, sc.radius + 15);
-        ctx.font = '700 5px "Press Start 2P", monospace';
+        ctx.fillText(capturedList.length > 1 ? `🔒 ${capturedList.length} LOCK` : (isNarrow ? '🔒 STASIS' : '🔒 STASIS LOCK'), 0, sc.radius + (isNarrow ? 12 : 15));
+        ctx.font = `700 ${isNarrow ? '4.5px' : '5px'} "Press Start 2P", monospace`;
         ctx.fillStyle = '#38bdf8';
-        ctx.fillText('TARGET: VINYL', 0, sc.radius + 24);
+        ctx.fillText(isNarrow ? 'TARGET: LP' : 'TARGET: VINYL', 0, sc.radius + (isNarrow ? 19 : 24));
       } else {
         // Idle pulsing target reticle
         ctx.strokeStyle = `rgba(168, 85, 247, ${0.5 + 0.3 * Math.sin(time * 6)})`;
@@ -4420,15 +4472,16 @@ export class BumperQuestEngine {
         ctx.lineTo(0, 8);
         ctx.stroke();
 
-        ctx.font = '700 6px "Press Start 2P", monospace';
+        const isNarrow = this.width < 500;
+        ctx.font = `700 ${isNarrow ? '5px' : '6px'} "Press Start 2P", monospace`;
         ctx.textAlign = 'center';
         ctx.fillStyle = '#c084fc';
         ctx.shadowColor = '#a855f7';
         ctx.shadowBlur = 6;
-        ctx.fillText('🔒 15s STASIS', 0, sc.radius + 15);
-        ctx.font = '700 5px "Press Start 2P", monospace';
+        ctx.fillText(isNarrow ? '🔒 STASIS' : '🔒 15s STASIS', 0, sc.radius + (isNarrow ? 12 : 15));
+        ctx.font = `700 ${isNarrow ? '4.5px' : '5px'} "Press Start 2P", monospace`;
         ctx.fillStyle = '#94a3b8';
-        ctx.fillText('RECORD LAUNCH', 0, sc.radius + 24);
+        ctx.fillText(isNarrow ? 'LP LAUNCH' : 'RECORD LAUNCH', 0, sc.radius + (isNarrow ? 19 : 24));
       }
 
       ctx.restore();

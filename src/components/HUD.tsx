@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   Volume2,
   VolumeX,
@@ -15,6 +15,7 @@ import {
   EyeOff,
   Music,
   Zap,
+  X,
 } from 'lucide-react';
 import { GameSettings } from '../game/physics';
 
@@ -91,39 +92,33 @@ export const HUD: React.FC<HUDProps> = ({
   const [isBottomHovered, setIsBottomHovered] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
-  // Top score HUD auto-hide after 15 seconds of inactivity, hover-reveal & eyeball toggle
-  const [isTopVisible, setIsTopVisible] = useState(true);
-  const [isTopHovered, setIsTopHovered] = useState(false);
-  const topHideTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  // User-controlled Letterboard Stats visibility toggle via the Eyeball button
+  // Persisted in localStorage so player preference is remembered across refreshes
+  const [isLetterboardHidden, setIsLetterboardHidden] = useState<boolean>(() => {
+    return localStorage.getItem('bq_hide_letterboard') === 'true';
+  });
 
-  const resetTopHideTimer = React.useCallback(() => {
-    setIsTopVisible(true);
-    if (topHideTimeoutRef.current) clearTimeout(topHideTimeoutRef.current);
-    topHideTimeoutRef.current = setTimeout(() => {
-      setIsTopVisible(false);
-    }, 15000); // 15 seconds
+  const hideLetterboard = useCallback(() => {
+    setIsLetterboardHidden(true);
+    localStorage.setItem('bq_hide_letterboard', 'true');
   }, []);
 
-  // Reset hide timer whenever score, multiplier, or wave changes
-  React.useEffect(() => {
-    resetTopHideTimer();
-  }, [score, multiplier, wave, resetTopHideTimer]);
+  const showLetterboard = useCallback(() => {
+    setIsLetterboardHidden(false);
+    localStorage.setItem('bq_hide_letterboard', 'false');
+  }, []);
 
-  // Reset hide timer on user interaction (mouse move, keyboard, touch)
-  React.useEffect(() => {
-    const handleActivity = () => {
-      resetTopHideTimer();
+  // Close help modal on Escape key
+  useEffect(() => {
+    if (!showHelp) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowHelp(false);
+      }
     };
-    window.addEventListener('mousemove', handleActivity);
-    window.addEventListener('keydown', handleActivity);
-    window.addEventListener('pointerdown', handleActivity);
-    return () => {
-      window.removeEventListener('mousemove', handleActivity);
-      window.removeEventListener('keydown', handleActivity);
-      window.removeEventListener('pointerdown', handleActivity);
-      if (topHideTimeoutRef.current) clearTimeout(topHideTimeoutRef.current);
-    };
-  }, [resetTopHideTimer]);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showHelp]);
 
   // In Zen mode, everything is hidden except a tiny subtle toggle icon in the top right
   if (isZenMode) {
@@ -140,36 +135,26 @@ export const HUD: React.FC<HUDProps> = ({
     );
   }
 
-  const isScoreBarShown = isTopVisible || isTopHovered;
+  const isScoreBarShown = !isLetterboardHidden;
 
   return (
     <>
-      {/* Top Edge Hover Reveal Trigger Strip */}
-      <div
-        onMouseEnter={() => setIsTopHovered(true)}
-        className="fixed top-0 left-0 right-0 h-4 z-30 pointer-events-auto"
-      />
-
-      {/* Floating Eyeball Toggle when Score HUD is hidden (top right) */}
-      {!isScoreBarShown && (
+      {/* Floating Eyeball Toggle when Letterboard Stats are hidden (top right) */}
+      {isLetterboardHidden && (
         <div className="absolute top-2 right-2 z-40 pointer-events-auto animate-in fade-in duration-300">
           <button
-            onClick={() => {
-              setIsTopVisible(true);
-              resetTopHideTimer();
-            }}
-            title="Show Score & Multiplier HUD (Auto-hides after 15s)"
-            className="p-1.5 sm:p-2 rounded-full bg-[#0a0c16]/90 hover:bg-[#12162a] text-cyan-400 border border-cyan-500/50 backdrop-blur-md shadow-lg shadow-cyan-950/80 transition-all hover:scale-105 active:scale-95"
+            onClick={showLetterboard}
+            title="Show Letterboard Stats (Click to restore top bar)"
+            className="p-1.5 sm:p-2 rounded-full bg-[#0a0c16]/95 hover:bg-[#12162a] text-cyan-400 hover:text-white border border-cyan-500/60 backdrop-blur-md shadow-xl shadow-cyan-950/90 transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 px-3"
           >
-            <Eye className="w-4 h-4" />
+            <Eye className="w-4 h-4 text-cyan-400 animate-pulse" />
+            <span className="text-[10px] font-mono text-cyan-300 font-bold hidden sm:inline tracking-wider">STATS</span>
           </button>
         </div>
       )}
 
-      {/* Sleek, Non-Intrusive Top Floating Status Ribbon (Disappears after 15 seconds) */}
+      {/* Sleek Top Floating Status Ribbon (Hidden when user toggles eyeball button) */}
       <header
-        onMouseEnter={() => setIsTopHovered(true)}
-        onMouseLeave={() => setIsTopHovered(false)}
         className={`absolute top-0 left-0 right-0 z-30 px-3 py-1.5 sm:px-4 sm:py-2 flex items-center justify-between transition-all duration-500 ease-out transform ${
           isScoreBarShown
             ? 'translate-y-0 opacity-100 pointer-events-none'
@@ -177,15 +162,15 @@ export const HUD: React.FC<HUDProps> = ({
         } bg-gradient-to-b from-black/85 via-black/35 to-transparent`}
       >
         {/* Left: Minimal Title & Auto Mode */}
-        <div className="flex items-center gap-2 pointer-events-auto">
-          <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1 sm:gap-2 pointer-events-auto flex-shrink-0">
+          <div className="flex items-center gap-1 sm:gap-1.5">
             <span className="font-arcade text-[10px] sm:text-xs text-cyan-400 tracking-wider glow-cyan">
               BQ
             </span>
-            <span className="hidden sm:inline font-arcade text-xs text-cyan-400 tracking-wider glow-cyan">
+            <span className="hidden md:inline font-arcade text-xs text-cyan-400 tracking-wider glow-cyan">
               QUEST
             </span>
-            <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-pink-500/20 text-pink-300 border border-pink-500/40">
+            <span className="hidden sm:inline text-[9px] font-mono px-1 py-0.2 rounded bg-pink-500/20 text-pink-300 border border-pink-500/40">
               {settings.rpm} RPM
             </span>
           </div>
@@ -194,42 +179,42 @@ export const HUD: React.FC<HUDProps> = ({
           <button
             onClick={onToggleAutoPilot}
             title={settings.autoPilot ? 'AI Goalie Active (Click to switch to manual)' : 'Manual Mode Active'}
-            className={`text-[9px] font-mono font-bold px-2 py-0.5 rounded-full border transition-all ${
+            className={`text-[8.5px] sm:text-[9px] font-mono font-bold px-1.5 sm:px-2 py-0.5 rounded-full border transition-all ${
               settings.autoPilot
                 ? 'border-green-500/50 bg-green-950/60 text-green-300 hover:bg-green-900/60'
                 : 'border-amber-500/50 bg-amber-950/60 text-amber-300 hover:bg-amber-900/60'
             }`}
           >
-            {settings.autoPilot ? '● AI GOALIE' : '○ MANUAL'}
+            {settings.autoPilot ? '● AI' : '○ MAN'}
           </button>
         </div>
 
         {/* Center: Inlined Clean Score, Multiplier, Wave & Dots Progress */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5 bg-[#0a0c16]/85 border border-cyan-500/30 px-2 sm:px-3 py-0.5 sm:py-1 rounded-full backdrop-blur-md shadow-md shadow-cyan-950/40 pointer-events-auto">
+        <div className="flex items-center gap-1 sm:gap-2 bg-[#0a0c16]/85 border border-cyan-500/30 px-1.5 sm:px-3 py-0.5 sm:py-1 rounded-full backdrop-blur-md shadow-md shadow-cyan-950/40 pointer-events-auto overflow-hidden">
           {/* Wave Badge */}
-          <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-[9px] font-mono text-cyan-300 font-bold">
+          <div className="flex items-center gap-0.5 sm:gap-1 px-1 sm:px-1.5 py-0.5 rounded bg-cyan-950/60 border border-cyan-500/40 text-[8.5px] sm:text-[9px] font-mono text-cyan-300 font-bold">
             <span>W{wave}</span>
           </div>
 
           <div className="flex items-baseline gap-1">
             <span className="hidden sm:inline text-[9px] font-mono text-cyan-300/60 tracking-wider">SCORE</span>
-            <span className="font-arcade text-xs sm:text-sm text-white glow-cyan">
+            <span className="font-arcade text-[10.5px] sm:text-sm text-white glow-cyan">
               {score.toLocaleString()}
             </span>
           </div>
 
-          <span className="text-slate-600 text-xs">•</span>
+          <span className="text-slate-600 text-xs hidden xs:inline">•</span>
 
           {/* Multiplier & X-Matrix Progress */}
-          <div className="flex items-center gap-1.5">
-            <span className="font-arcade text-[10px] sm:text-xs text-pink-400 glow-magenta font-bold">
+          <div className="flex items-center gap-1 sm:gap-1.5">
+            <span className="font-arcade text-[9.5px] sm:text-xs text-pink-400 glow-magenta font-bold">
               {multiplier}x
             </span>
 
             {/* X-Matrix Indicator: 4 geometric multipliers */}
             <div
               title={`X-Multiplier Matrix: ${litMultiplierCount} of 4 activated. Hit all 4 to trigger Multiball Surge (+2 Balls & +8 Dots)!`}
-              className={`flex items-center gap-0.5 px-1.5 py-0.5 rounded border transition-all ${
+              className={`hidden sm:flex items-center gap-0.5 px-1.5 py-0.5 rounded border transition-all ${
                 litMultiplierCount === 4
                   ? 'bg-amber-950/80 border-amber-400 text-amber-300 animate-pulse'
                   : litMultiplierCount > 0
@@ -258,7 +243,7 @@ export const HUD: React.FC<HUDProps> = ({
           {/* Dots Remaining Meter */}
           <div
             title={`Dots remaining: ${dotsRemaining} of ${dotsTotal}. Clear all to conquer the wave!`}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-950/40 border border-emerald-500/30 text-[9px] font-mono text-emerald-300"
+            className="flex items-center gap-1 px-1 sm:px-1.5 py-0.5 rounded bg-emerald-950/40 border border-emerald-500/30 text-[8.5px] sm:text-[9px] font-mono text-emerald-300"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="font-bold">{dotsRemaining}</span>
@@ -274,7 +259,7 @@ export const HUD: React.FC<HUDProps> = ({
 
           {/* Secret Super Flipper Needle Arm Online Badge (> 4 balls) */}
           {ballCount > 4 && (
-            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500/25 to-yellow-500/15 border border-amber-400 text-[10px] font-mono text-amber-300 font-bold animate-pulse shadow-md shadow-amber-500/30">
+            <div className="hidden md:flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500/25 to-yellow-500/15 border border-amber-400 text-[10px] font-mono text-amber-300 font-bold animate-pulse shadow-md shadow-amber-500/30">
               <Zap className="w-3 h-3 text-amber-400 fill-amber-400 animate-bounce" />
               <span className="tracking-wide">NEEDLE FLIPPER ONLINE</span>
             </div>
@@ -282,13 +267,13 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
 
         {/* Right: Quick Action Icons */}
-        <div className="flex items-center gap-1 sm:gap-1.5 pointer-events-auto">
+        <div className="flex items-center gap-1 sm:gap-1.5 pointer-events-auto flex-shrink-0">
           {/* Record Music Indicator / Toggle */}
           {onToggleIntroMusic && (
             <button
               onClick={onToggleIntroMusic}
               title={isIntroMusicPlaying ? 'Turntable Theme: PLAYING (Click to stop)' : 'Turntable Theme: OFF (Click to play)'}
-              className={`p-1.5 rounded-lg border text-xs transition-colors flex items-center gap-1 ${
+              className={`hidden md:flex p-1.5 rounded-lg border text-xs transition-colors items-center gap-1 ${
                 isIntroMusicPlaying
                   ? 'bg-pink-950/50 border-pink-400 text-pink-300 animate-pulse'
                   : 'bg-black/60 border-slate-800 text-slate-500 hover:text-pink-300 hover:border-slate-700'
@@ -302,7 +287,7 @@ export const HUD: React.FC<HUDProps> = ({
           <button
             onClick={onToggleTiltPad}
             title={isTiltPadOpen ? 'Hide Tilt Pad' : 'Show Tilt Pad'}
-            className={`p-1.5 rounded-lg border text-xs transition-colors ${
+            className={`hidden sm:flex p-1.5 rounded-lg border text-xs transition-colors ${
               isTiltPadOpen
                 ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
                 : 'bg-black/60 border-slate-800 text-slate-400 hover:text-cyan-300 hover:border-slate-700'
@@ -315,7 +300,7 @@ export const HUD: React.FC<HUDProps> = ({
           <button
             onClick={onToggleMute}
             title={!isAudioActive ? 'Click to Enable Audio' : isMuted ? 'Unmute Audio' : 'Mute Audio'}
-            className={`p-1.5 rounded-lg border text-xs transition-colors flex items-center gap-1 ${
+            className={`p-1 sm:p-1.5 rounded-lg border text-xs transition-colors flex items-center gap-1 ${
               !isAudioActive
                 ? 'bg-amber-950/50 border-amber-500/60 text-amber-300 animate-pulse'
                 : !isMuted
@@ -330,27 +315,24 @@ export const HUD: React.FC<HUDProps> = ({
           <button
             onClick={onOpenSettings}
             title="Settings"
-            className="p-1.5 rounded-lg bg-black/60 border border-slate-800 hover:border-slate-700 text-slate-300 transition-colors"
+            className="p-1 sm:p-1.5 rounded-lg bg-black/60 border border-slate-800 hover:border-slate-700 text-slate-300 transition-colors"
           >
             <Settings className="w-3.5 h-3.5" />
           </button>
 
-          {/* Hide Score HUD (or wait 15 seconds) */}
+          {/* Hide Top Letterboard Stats Button */}
           <button
-            onClick={() => {
-              setIsTopVisible(false);
-              setIsTopHovered(false);
-            }}
-            title="Hide Score HUD (Auto-hides after 15s)"
-            className="p-1.5 rounded-lg bg-black/60 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white transition-colors"
+            onClick={hideLetterboard}
+            title="Hide Top Letterboard Stats (Click eyeball to hide)"
+            className="p-1 sm:p-1.5 rounded-lg bg-black/60 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-cyan-400 hover:scale-105 active:scale-95 transition-all"
           >
             <EyeOff className="w-3.5 h-3.5" />
           </button>
 
           <button
             onClick={() => setShowHelp(true)}
-            title="How to play"
-            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 transition-colors"
+            title="How to play / System Guide"
+            className="p-1 sm:p-1.5 rounded-lg text-slate-500 hover:text-slate-300 transition-colors"
           >
             <HelpCircle className="w-3.5 h-3.5" />
           </button>
@@ -359,20 +341,20 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* GAME OVER SELF-PLAYING RESET BANNER */}
       {gameState === 'game_over' && (
-        <div className="absolute top-14 left-0 right-0 z-30 flex justify-center pointer-events-none px-4 animate-in fade-in zoom-in-95 duration-200">
-          <div className="flex items-center gap-3 px-4 py-2 rounded-full bg-[#18050a]/95 border-2 border-rose-500 text-rose-300 font-mono text-xs shadow-2xl shadow-rose-950/80 pointer-events-auto">
-            <span className="font-arcade text-[11px] text-rose-400 glow-magenta">
+        <div className="absolute top-12 sm:top-14 left-0 right-0 z-30 flex justify-center pointer-events-none px-2 sm:px-4 animate-in fade-in zoom-in-95 duration-200">
+          <div className="max-w-[94vw] flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-[#18050a]/95 border-2 border-rose-500 text-rose-300 font-mono text-[9px] sm:text-xs shadow-2xl shadow-rose-950/80 pointer-events-auto">
+            <span className="font-arcade text-[9.5px] sm:text-[11px] text-rose-400 glow-magenta whitespace-nowrap">
               ALL BALLS DRAINED
             </span>
-            <span className="text-slate-400 text-[10px]">
-              AUTO-RESETTING IN {Math.max(1, Math.ceil(stateCountdown))}s...
+            <span className="text-slate-400 text-[8.5px] sm:text-[10px] hidden xs:inline">
+              RESETTING IN {Math.max(1, Math.ceil(stateCountdown))}s...
             </span>
             {onRestartRound && (
               <button
                 onClick={onRestartRound}
-                className="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white font-mono text-[10px] font-bold transition-all active:scale-95 cursor-pointer shadow"
+                className="px-2 sm:px-2.5 py-0.5 sm:py-1 rounded bg-rose-600 hover:bg-rose-500 text-white font-mono text-[9px] sm:text-[10px] font-bold transition-all active:scale-95 cursor-pointer shadow whitespace-nowrap"
               >
-                ↺ RESTART NOW
+                ↺ RESTART
               </button>
             )}
           </div>
@@ -381,30 +363,30 @@ export const HUD: React.FC<HUDProps> = ({
 
       {/* WAVE CLEARED CELEBRATION BANNER */}
       {gameState === 'wave_cleared' && (
-        <div className="absolute top-14 left-0 right-0 z-30 flex justify-center pointer-events-none px-4 animate-in fade-in zoom-in-95 duration-200">
-          <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#051a0e]/95 border-2 border-emerald-400 text-emerald-300 font-arcade text-xs shadow-2xl shadow-emerald-950/80 glow-green">
-            <Sparkles className="w-4 h-4 text-emerald-300 animate-spin-slow" />
-            <span>★ WAVE {wave} CLEARED! NEXT IN {Math.max(1, Math.ceil(stateCountdown))}s ★</span>
+        <div className="absolute top-12 sm:top-14 left-0 right-0 z-30 flex justify-center pointer-events-none px-2 sm:px-4 animate-in fade-in zoom-in-95 duration-200">
+          <div className="max-w-[94vw] flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-[#051a0e]/95 border-2 border-emerald-400 text-emerald-300 font-arcade text-[9px] sm:text-xs shadow-2xl shadow-emerald-950/80 glow-green">
+            <Sparkles className="w-3.5 h-3.5 text-emerald-300 animate-spin-slow flex-shrink-0" />
+            <span className="truncate">★ WAVE {wave} CLEARED! NEXT IN {Math.max(1, Math.ceil(stateCountdown))}s ★</span>
           </div>
         </div>
       )}
 
       {/* MATRIX MULTIBALL SURGE BANNER */}
       {matrixBonusMessage && gameState === 'playing' && (
-        <div className="absolute top-14 left-0 right-0 z-30 flex justify-center pointer-events-none px-4 animate-in fade-in zoom-in-95 duration-200">
-          <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#1c1404]/95 border-2 border-amber-400 text-amber-300 font-arcade text-xs tracking-wider shadow-xl shadow-amber-500/50 glow-amber">
-            <Sparkles className="w-4 h-4 text-amber-300 animate-spin-slow" />
-            <span>{matrixBonusMessage}</span>
+        <div className="absolute top-12 sm:top-14 left-0 right-0 z-30 flex justify-center pointer-events-none px-2 sm:px-4 animate-in fade-in zoom-in-95 duration-200">
+          <div className="max-w-[94vw] flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-[#1c1404]/95 border border-amber-400 text-amber-300 font-arcade text-[9px] sm:text-xs tracking-wider shadow-xl shadow-amber-500/50 glow-amber">
+            <Sparkles className="w-3.5 h-3.5 text-amber-300 animate-spin-slow flex-shrink-0" />
+            <span className="truncate">{matrixBonusMessage}</span>
           </div>
         </div>
       )}
 
       {/* QUAD-CYCLE CELEBRATION BANNER */}
       {quadBonusMessage && gameState === 'playing' && (
-        <div className="absolute top-14 left-0 right-0 z-30 flex justify-center pointer-events-none px-4 animate-in fade-in zoom-in-95 duration-200">
-          <div className="flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#051a0e]/95 border-2 border-green-400 text-green-300 font-arcade text-xs tracking-wider shadow-xl shadow-green-500/40 glow-green">
-            <Sparkles className="w-4 h-4 text-green-300 animate-spin-slow" />
-            <span>{quadBonusMessage}</span>
+        <div className="absolute top-12 sm:top-14 left-0 right-0 z-30 flex justify-center pointer-events-none px-2 sm:px-4 animate-in fade-in zoom-in-95 duration-200">
+          <div className="max-w-[94vw] flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-full bg-[#051a0e]/95 border border-green-400 text-green-300 font-arcade text-[9px] sm:text-xs tracking-wider shadow-xl shadow-green-500/40 glow-green">
+            <Sparkles className="w-3.5 h-3.5 text-green-300 animate-spin-slow flex-shrink-0" />
+            <span className="truncate">{quadBonusMessage}</span>
           </div>
         </div>
       )}
@@ -534,34 +516,146 @@ export const HUD: React.FC<HUDProps> = ({
         </div>
       )}
 
-      {/* How to Play Modal */}
+      {/* How to Play / Field Elements Guide Modal */}
       {showHelp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
-          <div className="relative w-full max-w-md bg-[#0c0e1a] border border-cyan-500/40 rounded-xl p-6 text-sm text-slate-300 space-y-4 shadow-2xl">
-            <h3 className="font-arcade text-cyan-400 text-sm">BUMPER QUEST // SYSTEM GUIDE</h3>
-            <ul className="space-y-2 text-xs font-mono text-slate-300">
-              <li>• <b className="text-cyan-300">⌒ Top & Bottom Bowing Elastic Bumpers:</b> Curved elastic bumper bands flank both the top and bottom center drains, aggressively catapulting stray balls back inward with rubber twang recoil!</li>
-              <li>• <b className="text-pink-400">⚔️ Top-Left Laser Slicer:</b> Entering the top-left hazard slicer splits your ball in two—cutting it in half into twin high-speed balls!</li>
-              <li>• <b className="text-purple-400">🔒 Top-Right Stasis Capture:</b> Traps your ball inside a magnetic vortex for 15 seconds with a visible countdown timer, then slingshots it out at hyper-velocity!</li>
-              <li>• <b className="text-emerald-400">★ Win Condition (Wave Clear):</b> Clear all glowing dots to conquer the wave and earn massive bonus points!</li>
-              <li>• <b className="text-amber-400">✦ Dynamic Dot Seeding:</b> The playfield breathes and evolves! The <b className="text-purple-300">Tempest Spider</b> weaves magenta silk dots when hit, and hard <b className="text-cyan-300">Vinyl Scratches</b> scatter cyan rhythm dots onto the grooves.</li>
-              <li>• <b className="text-yellow-400">⚡ All X-Multipliers Surge:</b> When all 4 geometric hazard multipliers (Circle, Square, Triangle, Rectangle) are struck, it activates the Matrix Overdrive: <b className="text-white">+2 Extra Balls</b> direct into play, plus a constellation of <b className="text-yellow-300">+8 Golden Stardust Dots</b>!</li>
-              <li>• <b className="text-pink-400">⚡ Ball-to-Ball Ricochets:</b> When balls collide with one another, they bounce with full kinetic elasticity and metallic clacks!</li>
-              <li>• <b className="text-yellow-300">❚❚ Tap Center to Pause:</b> Tap or click the center red record label (or press <b className="text-white">P</b>) to freeze/resume the game at any moment!</li>
-              <li>• <b className="text-amber-300">⚡ Secret Needle Super Flipper:</b> When <b className="text-white">more than 4 balls</b> are generated on screen, the central turntable needle tonearm awakens into a high-energy kinetic super flipper—sweeping with plasma lightning to violently bat balls back into the arena!</li>
-              <li>• <b className="text-green-300">Quad-Flipper Cycle:</b> When any single ball visits all 4 corner flippers, +1 bonus ball is immediately awarded.</li>
-              <li>• <b className="text-orange-400">⚙ Spiked Corner Pinwheels:</b> High-rpm compact spiked ricochet turbines in bottom corners under flippers radically fling balls back up into the arena! Can be toggled on/off in Settings.</li>
-              <li>• <b className="text-cyan-400">🌀 Pac-Man Warp Tunnels:</b> Pass through the left or right wall tunnels to teleport seamlessly across hyperspace to the opposite side of the table!</li>
-              <li>• <b className="text-rose-400">▼ Gutter Drains:</b> Top and bottom center hazard drains will swallow balls. If all active balls drain into the abyss, the round ends.</li>
-              <li>• <b className="text-cyan-400">↺ Self-Playing Auto-Reset:</b> When a round ends, a 3-second countdown automatically restarts a fresh round with brand new dots and ball launch—zero manual interaction needed!</li>
-              <li>• <b className="text-white">Hidden Bottom Controls:</b> Hover over the glowing neon lip at the bottom of the screen to reveal the controls console!</li>
-            </ul>
-            <button
-              onClick={() => setShowHelp(false)}
-              className="w-full py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded font-mono text-xs font-bold transition-colors"
-            >
-              Resume
-            </button>
+        <div
+          onClick={() => setShowHelp(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-in fade-in duration-200"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="relative w-full max-w-lg max-h-[90vh] sm:max-h-[85vh] flex flex-col bg-[#0c0e1a] border border-cyan-500/50 rounded-2xl shadow-2xl shadow-cyan-950/90 overflow-hidden"
+          >
+            {/* Sticky Header with Title and Touch-Friendly Close 'X' Button */}
+            <div className="flex items-center justify-between px-4 sm:px-5 py-3.5 bg-[#101426] border-b border-cyan-500/30 flex-shrink-0">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#00f3ff]" />
+                <h3 className="font-arcade text-cyan-300 text-xs sm:text-sm tracking-wide glow-cyan">
+                  FIELD ATTRACTIONS & ELEMENTS
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowHelp(false)}
+                title="Close Guide (Esc)"
+                className="p-1.5 sm:p-2 rounded-lg bg-black/50 hover:bg-rose-950/80 border border-slate-700 hover:border-rose-500 text-slate-400 hover:text-white transition-all active:scale-90 flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4 sm:w-4.5 sm:h-4.5" />
+              </button>
+            </div>
+
+            {/* Scrollable Content Area */}
+            <div className="flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-4 text-xs font-mono text-slate-300">
+              <div className="p-3 rounded-lg bg-cyan-950/30 border border-cyan-500/30 text-cyan-200 text-[11px] leading-relaxed">
+                🤖 <b className="text-white">Self-Playing Kinetic Arcade:</b> Bumper Quest is completely autonomous! AI goalies pilot all 4 flippers and automatically launch new rounds upon ball drain. Watch the kinetic choreography unfold, or jump in with flipper keys / touch triggers anytime!
+              </div>
+
+              {/* Group 1: Turntable & Center Playfield */}
+              <div className="space-y-2">
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-pink-400 flex items-center gap-1.5 border-b border-pink-500/20 pb-1">
+                  <span>💿</span> Turntable & Center Arena
+                </h4>
+                <div className="space-y-2.5 pl-1">
+                  <div>
+                    <span className="text-pink-300 font-bold">• 45 / 33 RPM Vinyl Record:</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">Spins with physical rotational drag and anisotropic light sheen glare. Balls ricochet off the rim with scratch sound effects and rhythmic dot scattering.</p>
+                  </div>
+                  <div>
+                    <span className="text-amber-300 font-bold">• Tone Arm & Cartridge:</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">Physically tracks the vinyl grooves. <b className="text-amber-200">Secret Needle Super Flipper:</b> When more than 4 balls enter the playfield, the needle awakens into an electric lightning flipper that violently bats balls back into the arena!</p>
+                  </div>
+                  <div>
+                    <span className="text-yellow-300 font-bold">• Center Spindle Label (❚❚ Pause):</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">Click or tap the center vinyl record label (or press <b className="text-white">P</b>) to freeze and resume the simulation anytime.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Group 2: Kinetic Defense Bumpers */}
+              <div className="space-y-2">
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5 border-b border-cyan-500/20 pb-1">
+                  <span>↕</span> Kinetic Defense Bumpers
+                </h4>
+                <div className="space-y-2.5 pl-1">
+                  <div>
+                    <span className="text-cyan-300 font-bold">• Top & Bottom Drain Relief Bumpers:</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">Dual motorized bumpers that move independently <b className="text-white">30 seconds apart</b>. They extend outward toward the top and bottom gutter drains to shield balls from draining, while shifting side-to-side on opposite flanks for visual dexterity!</p>
+                  </div>
+                  <div>
+                    <span className="text-cyan-300 font-bold">• Bowing Elastic Bumpers:</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">Curved elastic rubber bands flanking both drains that bow and catapult descending balls inward with high-velocity twang recoil.</p>
+                  </div>
+                  <div>
+                    <span className="text-orange-400 font-bold">• Spiked Corner Pinwheels:</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">Rapidly spinning turbine pinwheels in the bottom corners under the flippers that fling low balls diagonally back toward the record.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Group 3: Special Attractions & Hyperspace */}
+              <div className="space-y-2">
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1.5 border-b border-purple-500/20 pb-1">
+                  <span>🔮</span> Hazards & Hyperspace Attractions
+                </h4>
+                <div className="space-y-2.5 pl-1">
+                  <div>
+                    <span className="text-pink-400 font-bold">• ⚔️ Top-Left Laser Slicer:</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">Laser beams slice any entering pinball clean in half, producing twin high-velocity balls with explosive laser slice audio.</p>
+                  </div>
+                  <div>
+                    <span className="text-purple-300 font-bold">• 🔒 Top-Right Stasis Capture & Courtesy Ball:</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">Imprisons balls in a magnetic stasis chamber for 15s before slingshotting them out. If all active balls are captured, a golden <b className="text-yellow-300">Courtesy Ball</b> is dispatched so action never stops. When the stasis ball releases, the courtesy ball humorously explodes!</p>
+                  </div>
+                  <div>
+                    <span className="text-cyan-400 font-bold">• 🌀 Pac-Man Warp Tunnels:</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">Left and right outer walls feature warp apertures. Entering one instantly teleports the ball out of the opposite side of the table!</p>
+                  </div>
+                  <div>
+                    <span className="text-purple-400 font-bold">• 🕷 Wandering Tempest Spider:</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">A rogue celestial spider that patrols the table, weaving silk dots when struck and sparking vibrant vector lightning.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Group 4: Scoring, Multipliers & Wave Clear */}
+              <div className="space-y-2">
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5 border-b border-emerald-500/20 pb-1">
+                  <span>★</span> Scoring & Wave Progression
+                </h4>
+                <div className="space-y-2.5 pl-1">
+                  <div>
+                    <span className="text-emerald-300 font-bold">• Constellation Dots & Wave Victory:</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">Collect all glowing constellation dots to conquer the wave! Unlocks massive wave-clear bonuses and advances to faster, higher-scoring waves.</p>
+                  </div>
+                  <div>
+                    <span className="text-amber-300 font-bold">• X-Multiplier Matrix Overdrive:</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">Strike all 4 geometric hazard bumpers (Circle, Square, Triangle, Rectangle) to trigger the Multiball Matrix Surge: <b className="text-white">+2 Extra Pinballs</b> and <b className="text-yellow-300">+8 Golden Stardust Dots</b>!</p>
+                  </div>
+                  <div>
+                    <span className="text-green-300 font-bold">• Quad-Flipper Circuit:</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">Guide a single ball to touch all 4 corner flippers to be rewarded with +1 bonus pinball.</p>
+                  </div>
+                  <div>
+                    <span className="text-rose-400 font-bold">• Drain & Automatic Reset:</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">If all pinballs drain into the abyss, a 3-second self-playing countdown resets the field, spawns a new ball, and automatically continues play.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Sticky Footer with Clear 'Back to Gameplay' Action */}
+            <div className="p-3 sm:p-4 bg-[#101426] border-t border-cyan-500/30 flex-shrink-0 flex items-center justify-between gap-3">
+              <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
+                Tap anywhere outside or press ESC to exit
+              </span>
+              <button
+                onClick={() => setShowHelp(false)}
+                className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-white font-mono text-xs font-bold shadow-lg shadow-cyan-950/80 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span>← BACK TO GAMEPLAY</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
