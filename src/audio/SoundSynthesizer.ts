@@ -697,6 +697,219 @@ class SoundSynthesizer {
   }
 
   /**
+   * Snappy Steel Ball-to-Ball Ricochet Clack Sound
+   */
+  public playBallRicochet() {
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    this.ensureRunning();
+
+    try {
+      const now = this.ctx.currentTime;
+      // High-pitched glassy steel clack
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(1600 + Math.random() * 400, now);
+      osc.frequency.exponentialRampToValueAtTime(800, now + 0.045);
+
+      gain.gain.setValueAtTime(0.01, now);
+      gain.gain.linearRampToValueAtTime(0.28, now + 0.003);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.045);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(now);
+      osc.stop(now + 0.045);
+    } catch (e) {
+      console.warn('Ball ricochet sound error:', e);
+    }
+  }
+
+  /**
+   * Game Pause Chime
+   */
+  public playPauseSound() {
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    this.ensureRunning();
+
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(659.25, now); // E5
+      osc.frequency.setValueAtTime(523.25, now + 0.08); // C5
+      osc.frequency.exponentialRampToValueAtTime(329.63, now + 0.22); // E4
+
+      gain.gain.setValueAtTime(0.01, now);
+      gain.gain.linearRampToValueAtTime(0.25, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(now);
+      osc.stop(now + 0.22);
+    } catch (e) {
+      console.warn('Pause sound error:', e);
+    }
+  }
+
+  /**
+   * Game Resume Chime
+   */
+  public playResumeSound() {
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    this.ensureRunning();
+
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(523.25, now); // C5
+      osc.frequency.setValueAtTime(659.25, now + 0.08); // E5
+      osc.frequency.exponentialRampToValueAtTime(880.00, now + 0.22); // A5
+
+      gain.gain.setValueAtTime(0.01, now);
+      gain.gain.linearRampToValueAtTime(0.25, now + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(now);
+      osc.stop(now + 0.22);
+    } catch (e) {
+      console.warn('Resume sound error:', e);
+    }
+  }
+
+  /**
+   * Laser Slicer Sound - High energy plasma slice
+   */
+  public playLaserSlice() {
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    this.ensureRunning();
+
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(2400, now);
+      osc.frequency.exponentialRampToValueAtTime(320, now + 0.12);
+
+      gain.gain.setValueAtTime(0.01, now);
+      gain.gain.linearRampToValueAtTime(0.32, now + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(now);
+      osc.stop(now + 0.12);
+    } catch (e) {
+      console.warn('Laser slice sound error:', e);
+    }
+  }
+
+  /**
+   * Stasis Capture Sound - Graviton tractor trap
+   */
+  public playStasisCapture() {
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    this.ensureRunning();
+
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1200, now);
+      osc.frequency.exponentialRampToValueAtTime(220, now + 0.28);
+
+      gain.gain.setValueAtTime(0.01, now);
+      gain.gain.linearRampToValueAtTime(0.35, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(now);
+      osc.stop(now + 0.28);
+    } catch (e) {
+      console.warn('Stasis capture sound error:', e);
+    }
+  }
+
+  /**
+   * Stasis Release Sound - Overcharged kinetic catapult
+   */
+  public playStasisRelease() {
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    this.ensureRunning();
+
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(220, now);
+      osc.frequency.exponentialRampToValueAtTime(1400, now + 0.16);
+
+      gain.gain.setValueAtTime(0.01, now);
+      gain.gain.linearRampToValueAtTime(0.4, now + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.25);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(now);
+      osc.stop(now + 0.25);
+    } catch (e) {
+      console.warn('Stasis release sound error:', e);
+    }
+  }
+
+  /**
+   * Elastic Bowing Bumper Snappy Twang
+   */
+  public playElasticBumperSnap() {
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    this.ensureRunning();
+
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(480, now);
+      osc.frequency.exponentialRampToValueAtTime(120, now + 0.15);
+
+      gain.gain.setValueAtTime(0.01, now);
+      gain.gain.linearRampToValueAtTime(0.35, now + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.15);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(now);
+      osc.stop(now + 0.15);
+    } catch (e) {
+      console.warn('Elastic bumper sound error:', e);
+    }
+  }
+
+  /**
    * Radical Spiked Pinwheel Ricochet Turbine Kick Sound
    */
   public playPinwheelRicochet() {
@@ -730,6 +943,79 @@ class SoundSynthesizer {
       osc.stop(now + 0.14);
     } catch (e) {
       console.warn('Pinwheel sound error:', e);
+    }
+  }
+
+  /**
+   * Secret Needle Super Flipper Activation Chime
+   */
+  public playSuperNeedleActivate() {
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    this.ensureRunning();
+
+    try {
+      const now = this.ctx.currentTime;
+      // Ascending futuristic chime chord
+      const chords = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+      chords.forEach((freq, idx) => {
+        if (!this.ctx || !this.masterGain) return;
+        const noteTime = now + idx * 0.045;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq, noteTime);
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.08, noteTime + 0.2);
+
+        gain.gain.setValueAtTime(0.01, noteTime);
+        gain.gain.linearRampToValueAtTime(0.2, noteTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, noteTime + 0.28);
+
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+
+        osc.start(noteTime);
+        osc.stop(noteTime + 0.28);
+      });
+    } catch (e) {
+      console.warn('Super needle activate error:', e);
+    }
+  }
+
+  /**
+   * Secret Needle Super Flipper Whip-Kicker Blast
+   */
+  public playSuperNeedleFlip() {
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    this.ensureRunning();
+
+    try {
+      const now = this.ctx.currentTime;
+      // Deep sub-bass punch + electric vinyl slap
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(420, now);
+      osc.frequency.exponentialRampToValueAtTime(75, now + 0.18);
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.setValueAtTime(2600, now);
+      filter.frequency.exponentialRampToValueAtTime(350, now + 0.18);
+
+      gain.gain.setValueAtTime(0.01, now);
+      gain.gain.linearRampToValueAtTime(0.42, now + 0.006);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(now);
+      osc.stop(now + 0.22);
+    } catch (e) {
+      console.warn('Super needle flip error:', e);
     }
   }
 

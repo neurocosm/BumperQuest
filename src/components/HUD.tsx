@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
   Music,
+  Zap,
 } from 'lucide-react';
 import { GameSettings } from '../game/physics';
 
@@ -202,6 +203,14 @@ export const HUD: React.FC<HUDProps> = ({
             <div className="hidden lg:flex items-baseline gap-1 pl-1 border-l border-slate-700/60 text-[9px] font-mono text-amber-400/80">
               <span>HI:</span>
               <span>{highScore.toLocaleString()}</span>
+            </div>
+          )}
+
+          {/* Secret Super Flipper Needle Arm Online Badge (> 4 balls) */}
+          {ballCount > 4 && (
+            <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-500/25 to-yellow-500/15 border border-amber-400 text-[10px] font-mono text-amber-300 font-bold animate-pulse shadow-md shadow-amber-500/30">
+              <Zap className="w-3 h-3 text-amber-400 fill-amber-400 animate-bounce" />
+              <span className="tracking-wide">NEEDLE FLIPPER ONLINE</span>
             </div>
           )}
         </div>
@@ -462,11 +471,17 @@ export const HUD: React.FC<HUDProps> = ({
           <div className="relative w-full max-w-md bg-[#0c0e1a] border border-cyan-500/40 rounded-xl p-6 text-sm text-slate-300 space-y-4 shadow-2xl">
             <h3 className="font-arcade text-cyan-400 text-sm">BUMPER QUEST // SYSTEM GUIDE</h3>
             <ul className="space-y-2 text-xs font-mono text-slate-300">
+              <li>• <b className="text-cyan-300">⌒ Top & Bottom Bowing Elastic Bumpers:</b> Curved elastic bumper bands flank both the top and bottom center drains, aggressively catapulting stray balls back inward with rubber twang recoil!</li>
+              <li>• <b className="text-pink-400">⚔️ Top-Left Laser Slicer:</b> Entering the top-left hazard slicer splits your ball in two—cutting it in half into twin high-speed balls!</li>
+              <li>• <b className="text-purple-400">🔒 Top-Right Stasis Capture:</b> Traps your ball inside a magnetic vortex for 15 seconds with a visible countdown timer, then slingshots it out at hyper-velocity!</li>
               <li>• <b className="text-emerald-400">★ Win Condition (Wave Clear):</b> Clear all glowing dots to conquer the wave and earn massive bonus points!</li>
               <li>• <b className="text-amber-400">✦ Dynamic Dot Seeding:</b> The playfield breathes and evolves! The <b className="text-purple-300">Tempest Spider</b> weaves magenta silk dots when hit, and hard <b className="text-cyan-300">Vinyl Scratches</b> scatter cyan rhythm dots onto the grooves.</li>
               <li>• <b className="text-yellow-400">⚡ All X-Multipliers Surge:</b> When all 4 geometric hazard multipliers (Circle, Square, Triangle, Rectangle) are struck, it activates the Matrix Overdrive: <b className="text-white">+2 Extra Balls</b> direct into play, plus a constellation of <b className="text-yellow-300">+8 Golden Stardust Dots</b>!</li>
+              <li>• <b className="text-pink-400">⚡ Ball-to-Ball Ricochets:</b> When balls collide with one another, they bounce with full kinetic elasticity and metallic clacks!</li>
+              <li>• <b className="text-yellow-300">❚❚ Tap Center to Pause:</b> Tap or click the center red record label (or press <b className="text-white">P</b>) to freeze/resume the game at any moment!</li>
+              <li>• <b className="text-amber-300">⚡ Secret Needle Super Flipper:</b> When <b className="text-white">more than 4 balls</b> are generated on screen, the central turntable needle tonearm awakens into a high-energy kinetic super flipper—sweeping with plasma lightning to violently bat balls back into the arena!</li>
               <li>• <b className="text-green-300">Quad-Flipper Cycle:</b> When any single ball visits all 4 corner flippers, +1 bonus ball is immediately awarded.</li>
-              <li>• <b className="text-orange-400">⚙ Spiked Corner Pinwheels:</b> High-rpm spiked ricochet turbines in bottom corners under flippers radically fling balls back up into the arena! Can be toggled on/off in Settings.</li>
+              <li>• <b className="text-orange-400">⚙ Spiked Corner Pinwheels:</b> High-rpm compact spiked ricochet turbines in bottom corners under flippers radically fling balls back up into the arena! Can be toggled on/off in Settings.</li>
               <li>• <b className="text-cyan-400">🌀 Pac-Man Warp Tunnels:</b> Pass through the left or right wall tunnels to teleport seamlessly across hyperspace to the opposite side of the table!</li>
               <li>• <b className="text-rose-400">▼ Gutter Drains:</b> Top and bottom center hazard drains will swallow balls. If all active balls drain into the abyss, the round ends.</li>
               <li>• <b className="text-cyan-400">↺ Self-Playing Auto-Reset:</b> When a round ends, a 3-second countdown automatically restarts a fresh round with brand new dots and ball launch—zero manual interaction needed!</li>

@@ -242,6 +242,11 @@ export const App: React.FC = () => {
       if (e.code === 'Space') {
         engineRef.current.spawnBall();
       }
+
+      // P key toggles pause
+      if (e.code === 'KeyP') {
+        engineRef.current.togglePause();
+      }
     };
 
     const handleKeyUp = (e: KeyboardEvent) => {
@@ -277,10 +282,45 @@ export const App: React.FC = () => {
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
 
+    // Check if clicked near needle arm
+    const arm = engineRef.current.needleArm;
+    const armDist = Math.hypot(x - arm.pivotX, y - arm.pivotY);
+    if (armDist < arm.length + 25) {
+      if (arm.isSuperActive) {
+        engineRef.current.triggerNeedleFlipper();
+        return;
+      }
+    }
+
+    // Check if clicked near Top-Left Slicer
+    const slicer = engineRef.current.slicer;
+    if (Math.hypot(x - slicer.x, y - slicer.y) < slicer.radius + 15) {
+      slicer.activeGlow = 1.0;
+      soundSynth.playLaserSlice();
+      return;
+    }
+
+    // Check if clicked near Top-Right Stasis Chamber
+    const stasis = engineRef.current.stasisChamber;
+    if (Math.hypot(x - stasis.x, y - stasis.y) < stasis.radius + 15) {
+      stasis.activeGlow = 1.0;
+      soundSynth.playStasisCapture();
+      return;
+    }
+
     // Check if clicked near center turntable
     const dx = x - engineRef.current.turntable.x;
     const dy = y - engineRef.current.turntable.y;
-    if (Math.hypot(dx, dy) < engineRef.current.turntable.radius) {
+    const distToCenter = Math.hypot(dx, dy);
+    const labelRadius = engineRef.current.turntable.radius * 0.44;
+
+    // Center record label tap -> TOGGLE PAUSE!
+    if (distToCenter <= labelRadius) {
+      engineRef.current.togglePause();
+      return;
+    }
+
+    if (distToCenter < engineRef.current.turntable.radius) {
       // Manual scratch tap!
       engineRef.current.turntable.scratchGlow = 1.0;
       engineRef.current.turntable.scratchImpulse = (Math.random() > 0.5 ? 1 : -1) * 0.12;
@@ -290,6 +330,24 @@ export const App: React.FC = () => {
       if (engineRef.current.balls.length < 8) {
         engineRef.current.spawnBall(x, y);
       }
+    }
+  };
+
+  const handleCanvasTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    handleUserInteraction();
+    if (!engineRef.current || !canvasRef.current || e.touches.length === 0) return;
+    const touch = e.touches[0];
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = touch.clientX - rect.left;
+    const y = touch.clientY - rect.top;
+
+    const dx = x - engineRef.current.turntable.x;
+    const dy = y - engineRef.current.turntable.y;
+    const distToCenter = Math.hypot(dx, dy);
+    const labelRadius = engineRef.current.turntable.radius * 0.44;
+
+    if (distToCenter <= labelRadius) {
+      engineRef.current.togglePause();
     }
   };
 
@@ -393,6 +451,7 @@ export const App: React.FC = () => {
       <canvas
         ref={canvasRef}
         onClick={handleCanvasClick}
+        onTouchStart={handleCanvasTouchStart}
         className="w-full h-full block cursor-crosshair"
       />
 

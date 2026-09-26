@@ -118,6 +118,50 @@ export interface SpikedPinwheel {
   color: string;
 }
 
+export interface NeedleTonearm {
+  pivotX: number;
+  pivotY: number;
+  length: number;
+  baseAngle: number;
+  currentAngle: number;
+  targetAngle: number;
+  angularVelocity: number;
+  isSuperActive: boolean;
+  isFlipping: boolean;
+  flipTimer: number;
+  chargeGlow: number;
+  hitGlow: number;
+  whipSpeed: number;
+}
+
+export interface LaserSlicer {
+  x: number;
+  y: number;
+  radius: number;
+  angle: number;
+  cooldownTimer: number;
+  activeGlow: number;
+  sliceCount: number;
+}
+
+export interface StasisCapturedBall {
+  id: number;
+  color: string;
+  radius: number;
+  timer: number;
+  maxTimer: number;
+  orbitAngle: number;
+}
+
+export interface StasisChamber {
+  x: number;
+  y: number;
+  radius: number;
+  rotation: number;
+  activeGlow: number;
+  capturedBall: StasisCapturedBall | null;
+}
+
 export interface GameSettings {
   autoPilot: boolean;
   rpm: number; // 33, 45, 78, 120
@@ -165,6 +209,23 @@ export class BumperQuestEngine {
     labelColor: '#ff0055',
   };
 
+  // Secret Super Flipper Needle Tonearm (Powers up when > 4 balls are generated!)
+  public needleArm: NeedleTonearm = {
+    pivotX: 550,
+    pivotY: 280,
+    length: 130,
+    baseAngle: 2.18,
+    currentAngle: 2.18,
+    targetAngle: 2.18,
+    angularVelocity: 0,
+    isSuperActive: false,
+    isFlipping: false,
+    flipTimer: 0,
+    chargeGlow: 0,
+    hitGlow: 0,
+    whipSpeed: 14,
+  };
+
   // Tempest Spider Guardian
   public spider = {
     angle: 0,
@@ -174,6 +235,27 @@ export class BumperQuestEngine {
     activeGlow: 0,
     width: 32,
     height: 28,
+  };
+
+  // Top-Left Laser Slicer (Cuts a ball into twins!)
+  public slicer: LaserSlicer = {
+    x: 50,
+    y: 50,
+    radius: 20,
+    angle: 0,
+    cooldownTimer: 0,
+    activeGlow: 0,
+    sliceCount: 0,
+  };
+
+  // Top-Right Stasis Capture Chamber (Captures a ball for 15 seconds then releases it!)
+  public stasisChamber: StasisChamber = {
+    x: 750,
+    y: 50,
+    radius: 24,
+    rotation: 0,
+    activeGlow: 0,
+    capturedBall: null,
   };
 
   // Physics params
@@ -189,6 +271,7 @@ export class BumperQuestEngine {
   public totalScratches: number = 0;
   public currentMultiplier: number = 1;
   public bottomFlairGlow: number = 0;
+  public topFlairGlow: number = 0;
   public fps: number = 60;
 
   // Wave & Win/Loss Game States
@@ -197,6 +280,35 @@ export class BumperQuestEngine {
   public dotsRemaining: number = 0;
   public gameState: 'playing' | 'wave_cleared' | 'game_over' = 'playing';
   public stateCountdown: number = 0;
+  public isPaused: boolean = false;
+
+  public togglePause(): boolean {
+    this.isPaused = !this.isPaused;
+    if (this.isPaused) {
+      soundSynth.playPauseSound();
+      this.notices.push({
+        text: '❚❚ GAME PAUSED',
+        x: this.turntable.x,
+        y: this.turntable.y - this.turntable.radius * 0.62,
+        vy: -0.2,
+        life: 0,
+        maxLife: 80,
+        color: '#ffea00',
+      });
+    } else {
+      soundSynth.playResumeSound();
+      this.notices.push({
+        text: '▶ GAME RESUMED',
+        x: this.turntable.x,
+        y: this.turntable.y - this.turntable.radius * 0.62,
+        vy: -0.2,
+        life: 0,
+        maxLife: 60,
+        color: '#00f3ff',
+      });
+    }
+    return this.isPaused;
+  }
 
   public onDotsUpdate?: (remaining: number, total: number) => void;
   public onWaveClear?: (wave: number, score: number) => void;
@@ -249,6 +361,8 @@ export class BumperQuestEngine {
 
     this.setupFlippers();
     this.setupPinwheels();
+    this.setupTopCornerGadgets();
+    this.setupNeedleArm();
   }
 
   public initEntities() {
@@ -267,6 +381,12 @@ export class BumperQuestEngine {
 
     // Setup Spiked Corner Pinwheels (under bottom flippers)
     this.setupPinwheels();
+
+    // Setup Top Corner Gadgets (Left Slicer, Right Stasis Capture)
+    this.setupTopCornerGadgets();
+
+    // Setup Secret Super Flipper Needle Tonearm
+    this.setupNeedleArm();
 
     // Setup Moving Geometric Hazards (Ghosts with multipliers)
     this.setupHazards();
@@ -390,7 +510,8 @@ export class BumperQuestEngine {
     const leftX = Math.max(34, marginX * 0.60);
     const rightX = Math.min(w - 34, w - marginX * 0.60);
     const pinwheelY = Math.min(h - 26, bottomMarginY + (h - bottomMarginY) * 0.48);
-    const r = Math.min(22, Math.max(16, Math.min(w, h) * 0.038));
+    // 25% smaller radical pinwheel turbines
+    const r = Math.min(22, Math.max(16, Math.min(w, h) * 0.038)) * 0.75;
 
     this.pinwheels = [
       {
@@ -418,6 +539,75 @@ export class BumperQuestEngine {
         color: '#00f3ff',
       },
     ];
+  }
+
+  private setupTopCornerGadgets() {
+    const w = this.width;
+    const h = this.height;
+    const isPortrait = h > w;
+    const marginX = isPortrait ? w * 0.14 : w * 0.12;
+    const topMarginY = isPortrait ? Math.max(72, h * 0.12) : h * 0.13;
+
+    // Placed in top corners symmetrically opposite bottom pinwheels
+    const leftX = Math.max(34, marginX * 0.60);
+    const rightX = Math.min(w - 34, w - marginX * 0.60);
+    const gadgetY = Math.max(26, topMarginY * 0.48);
+    const r = Math.min(22, Math.max(16, Math.min(w, h) * 0.038)) * 0.95;
+
+    // Top-Left Laser Slicer (Splits balls into twins)
+    this.slicer = {
+      x: leftX,
+      y: gadgetY,
+      radius: r,
+      angle: 0,
+      cooldownTimer: 0,
+      activeGlow: 0,
+      sliceCount: 0,
+    };
+
+    // Top-Right Stasis Capture Chamber (Captures a ball for 15s then releases)
+    this.stasisChamber = {
+      x: rightX,
+      y: gadgetY,
+      radius: r * 1.15,
+      rotation: 0,
+      activeGlow: 0,
+      capturedBall: this.stasisChamber?.capturedBall || null,
+    };
+  }
+
+  private setupNeedleArm() {
+    const cx = this.width / 2;
+    const cy = this.height / 2;
+    const r = this.turntable.radius;
+
+    // Anchor pivot outside top-right perimeter of the vinyl disc
+    const pivotX = cx + r * 1.34;
+    const pivotY = cy - r * 1.05;
+
+    // Rest position pointing toward the vinyl groove
+    const stylusRestX = cx + r * 0.72;
+    const stylusRestY = cy - r * 0.22;
+    const dx = stylusRestX - pivotX;
+    const dy = stylusRestY - pivotY;
+    const length = Math.hypot(dx, dy);
+    const baseAngle = Math.atan2(dy, dx);
+
+    this.needleArm = {
+      pivotX,
+      pivotY,
+      length,
+      baseAngle,
+      currentAngle: baseAngle,
+      targetAngle: baseAngle,
+      angularVelocity: 0,
+      isSuperActive: this.balls.length > 4,
+      isFlipping: false,
+      flipTimer: 0,
+      chargeGlow: 0,
+      hitGlow: 0,
+      whipSpeed: 16,
+    };
   }
 
   private setupHazards() {
@@ -572,6 +762,11 @@ export class BumperQuestEngine {
       }
       soundSynth.playFlipperSnap();
     }
+
+    // Secret Super Needle Arm also performs a synchronous power sweep!
+    if (this.needleArm.isSuperActive) {
+      this.triggerNeedleFlipper();
+    }
   }
 
   public releaseFlipper(id: 'TL' | 'TR' | 'BL' | 'BR') {
@@ -604,6 +799,19 @@ export class BumperQuestEngine {
   }
 
   private update(dt: number) {
+    // When paused, freeze physics simulation while letting notices gently decay
+    if (this.isPaused) {
+      for (let i = this.notices.length - 1; i >= 0; i--) {
+        const notice = this.notices[i];
+        notice.life += dt * 60;
+        notice.y += notice.vy * dt * 60;
+        if (notice.life >= notice.maxLife) {
+          this.notices.splice(i, 1);
+        }
+      }
+      return;
+    }
+
     // 1. Update turntable RPM and rotation
     const baseRPM = this.settings.rpm;
     this.turntable.targetAngularVelocity = (baseRPM / 60) * Math.PI * 2 * 0.016;
@@ -624,6 +832,7 @@ export class BumperQuestEngine {
     // 5. Update Flippers (Auto AI or manual)
     this.updateFlippers(dt);
     this.bottomFlairGlow = Math.max(0, this.bottomFlairGlow - dt * 2.2);
+    this.topFlairGlow = Math.max(0, this.topFlairGlow - dt * 2.2);
 
     // 5.5. Update Spiked Pinwheels rotation & glow
     if (this.settings.spikedPinwheels !== false) {
@@ -632,6 +841,12 @@ export class BumperQuestEngine {
         p.hitGlow = Math.max(0, p.hitGlow - dt * 2.2);
       }
     }
+
+    // 5.6. Update Secret Super Flipper Needle Tonearm
+    this.updateNeedleArm(dt);
+
+    // 5.7. Update Top Corner Gadgets (Laser Slicer & Stasis Capture Chamber)
+    this.updateTopCornerGadgets(dt);
 
     // 6. Update Game State Countdown (Wave Cleared or Game Over Self-Playing Reset)
     if (this.gameState === 'wave_cleared') {
@@ -818,6 +1033,153 @@ export class BumperQuestEngine {
     }
   }
 
+  private updateNeedleArm(dt: number) {
+    const isSuper = this.balls.length > 4;
+    const arm = this.needleArm;
+    const time = performance.now() * 0.001;
+
+    // Transition into Super Flipper mode
+    if (isSuper && !arm.isSuperActive) {
+      arm.isSuperActive = true;
+      soundSynth.playSuperNeedleActivate();
+      arm.chargeGlow = 1.0;
+      this.shockwaves.push({
+        x: arm.pivotX,
+        y: arm.pivotY,
+        radius: 12,
+        maxRadius: 85,
+        color: '#ffea00',
+        alpha: 1.0,
+      });
+      this.notices.push({
+        text: '⚡ NEEDLE SUPER FLIPPER ONLINE! ⚡',
+        x: this.width / 2,
+        y: this.height * 0.28,
+        vy: -0.4,
+        life: 0,
+        maxLife: 75,
+        color: '#ffea00',
+      });
+    } else if (!isSuper && arm.isSuperActive) {
+      arm.isSuperActive = false;
+      arm.targetAngle = arm.baseAngle;
+    }
+
+    if (arm.isSuperActive) {
+      arm.chargeGlow = Math.min(1.0, Math.max(0.4, 0.7 + 0.3 * Math.sin(time * 12)));
+
+      // Auto-tracking proximity whip: detect approaching balls
+      for (const b of this.balls) {
+        const dx = b.x - arm.pivotX;
+        const dy = b.y - arm.pivotY;
+        const dist = Math.hypot(dx, dy);
+
+        if (dist > 12 && dist < arm.length + 34) {
+          const ballAngle = Math.atan2(dy, dx);
+          let angleDiff = ballAngle - arm.baseAngle;
+          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
+          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+
+          if (angleDiff > -1.15 && angleDiff < 0.35) {
+            this.triggerNeedleFlipper();
+            break;
+          }
+        }
+      }
+
+      if (arm.isFlipping) {
+        arm.flipTimer -= dt;
+        if (arm.flipTimer <= 0) {
+          arm.isFlipping = false;
+          arm.targetAngle = arm.baseAngle;
+        }
+      }
+
+      // High-speed spring rotation
+      const diff = arm.targetAngle - arm.currentAngle;
+      arm.currentAngle += diff * Math.min(1, dt * 34);
+    } else {
+      // Gentle micro-groove vibration tracking the vinyl
+      arm.targetAngle = arm.baseAngle + Math.sin(time * 3.5) * 0.012;
+      arm.currentAngle += (arm.targetAngle - arm.currentAngle) * Math.min(1, dt * 12);
+      arm.chargeGlow = Math.max(0, arm.chargeGlow - dt * 2);
+    }
+
+    arm.hitGlow = Math.max(0, arm.hitGlow - dt * 2.5);
+  }
+
+  public triggerNeedleFlipper() {
+    if (this.needleArm.isFlipping) return;
+    this.needleArm.isFlipping = true;
+    this.needleArm.flipTimer = 0.22;
+    this.needleArm.targetAngle = this.needleArm.baseAngle - 0.78; // Powerful upward-inward sweep
+    this.needleArm.chargeGlow = 1.0;
+    soundSynth.playFlipperSnap();
+  }
+
+  private updateTopCornerGadgets(dt: number) {
+    // Slicer
+    this.slicer.angle += dt * 6.5;
+    this.slicer.cooldownTimer = Math.max(0, this.slicer.cooldownTimer - dt);
+    this.slicer.activeGlow = Math.max(0, this.slicer.activeGlow - dt * 2.2);
+
+    // Stasis Chamber
+    this.stasisChamber.rotation += dt * 2.5;
+    this.stasisChamber.activeGlow = Math.max(0, this.stasisChamber.activeGlow - dt * 1.5);
+
+    if (this.stasisChamber.capturedBall) {
+      const cb = this.stasisChamber.capturedBall;
+      cb.timer -= dt;
+      cb.orbitAngle += dt * 5.0;
+
+      // When 15 seconds expire -> Release the ball!
+      if (cb.timer <= 0) {
+        // High-velocity ejection into arena
+        const launchAngle = Math.PI * 0.65 + (Math.random() - 0.5) * 0.35;
+        const launchSpeed = 16.5;
+        this.balls.push({
+          id: cb.id,
+          x: this.stasisChamber.x,
+          y: this.stasisChamber.y,
+          vx: Math.cos(launchAngle) * launchSpeed,
+          vy: Math.sin(launchAngle) * launchSpeed,
+          radius: cb.radius,
+          color: cb.color,
+          trail: [],
+          lastBounceTime: 0,
+          visitedFlippers: new Set(),
+          visitedMultipliers: new Set(),
+        });
+
+        this.stasisChamber.capturedBall = null;
+        this.stasisChamber.activeGlow = 1.0;
+        soundSynth.playStasisRelease();
+
+        this.shockwaves.push({
+          x: this.stasisChamber.x,
+          y: this.stasisChamber.y,
+          radius: 12,
+          maxRadius: 95,
+          color: '#a855f7',
+          alpha: 1.0,
+        });
+        this.addSparks(this.stasisChamber.x, this.stasisChamber.y, '#a855f7', 24);
+        this.addSparks(this.stasisChamber.x, this.stasisChamber.y, '#00f3ff', 18);
+
+        this.notices.push({
+          text: '⚡ STASIS 15s RELEASE! ⚡',
+          x: this.stasisChamber.x - 50,
+          y: this.stasisChamber.y + 35,
+          vy: 0.3,
+          life: 0,
+          maxLife: 80,
+          color: '#a855f7',
+        });
+        this.score += 1500 * this.currentMultiplier;
+      }
+    }
+  }
+
   private updateBalls(dt: number) {
     const totalGx = (this.gravity.x + this.tiltGravity.x * this.settings.tiltSensitivity);
     const totalGy = (this.gravity.y + this.tiltGravity.y * this.settings.tiltSensitivity);
@@ -847,6 +1209,56 @@ export class BumperQuestEngine {
       // Move
       ball.x += ball.vx;
       ball.y += ball.vy;
+
+      // 0. Ball-to-Ball Elastic Ricochet Collisions
+      for (let j = bIdx - 1; j >= 0; j--) {
+        const other = this.balls[j];
+        const bdx = other.x - ball.x;
+        const bdy = other.y - ball.y;
+        const minDist = ball.radius + other.radius;
+        const distSq = bdx * bdx + bdy * bdy;
+
+        if (distSq < minDist * minDist && distSq > 0.00001) {
+          const dist = Math.sqrt(distSq);
+          const nx = bdx / dist;
+          const ny = bdy / dist;
+
+          // Push apart to resolve any penetration
+          const overlap = minDist - dist;
+          ball.x -= nx * (overlap * 0.5 + 0.1);
+          ball.y -= ny * (overlap * 0.5 + 0.1);
+          other.x += nx * (overlap * 0.5 + 0.1);
+          other.y += ny * (overlap * 0.5 + 0.1);
+
+          // Relative velocity
+          const rvx = other.vx - ball.vx;
+          const rvy = other.vy - ball.vy;
+          const velAlongNormal = rvx * nx + rvy * ny;
+
+          // If moving toward each other, calculate elastic impulse
+          if (velAlongNormal < 0) {
+            const restitution = 0.96;
+            let impulseMag = -(1 + restitution) * velAlongNormal * 0.5;
+            if (impulseMag < 2.0) impulseMag = 2.0; // lively arcade minimum bounce
+
+            const ix = impulseMag * nx;
+            const iy = impulseMag * ny;
+
+            ball.vx -= ix;
+            ball.vy -= iy;
+            other.vx += ix;
+            other.vy += iy;
+
+            // Audio & Visual feedback
+            soundSynth.playBallRicochet();
+            this.totalBumps++;
+            const midX = (ball.x + other.x) * 0.5;
+            const midY = (ball.y + other.y) * 0.5;
+            this.addSparks(midX, midY, '#ffffff', 5);
+            this.addSparks(midX, midY, ball.color || '#00f3ff', 3);
+          }
+        }
+      }
 
       // Trail recording (timing dots)
       ball.trail.unshift({
@@ -913,9 +1325,10 @@ export class BumperQuestEngine {
         }
       }
 
-      // Top Wall & Top Gutter Drain
-      if (ball.y - ball.radius < 10) {
-        if (ball.x >= drainLeft && ball.x <= drainRight) {
+      // Top Wall, Top Bowing Elastic Bumpers & Top Gutter Drain
+      const topArchControlY = 38 + this.topFlairGlow * 10;
+      if (ball.x >= drainLeft && ball.x <= drainRight) {
+        if (ball.y - ball.radius < 10) {
           // Ball drains through the Top Gutter!
           this.addSparks(ball.x, 0, '#ff0055', 18);
           this.shockwaves.push({
@@ -930,19 +1343,52 @@ export class BumperQuestEngine {
 
           this.balls.splice(bIdx, 1);
 
-          if (this.balls.length === 0) {
+          if (this.balls.length === 0 && !this.stasisChamber.capturedBall) {
             this.triggerGameOver();
           }
           continue;
-        } else {
-          // Solid top wall bounce
+        }
+      } else if (ball.x >= this.width * 0.16 && ball.x < drainLeft) {
+        // Top-Left Bowing Elastic Bumper Arch
+        const t = (ball.x - this.width * 0.16) / (drainLeft - this.width * 0.16);
+        const archY = (1 - t) * (1 - t) * 14 + 2 * (1 - t) * t * topArchControlY + t * t * 14;
+        if (ball.y - ball.radius <= archY) {
+          ball.y = archY + ball.radius + 1;
+          ball.vy = Math.max(7.5, Math.abs(ball.vy) * 1.25 + 3.5);
+          ball.vx += (t < 0.5 ? 1.5 : -1.5);
+          this.topFlairGlow = 1.0;
+          soundSynth.playElasticBumperSnap();
+          this.totalBumps++;
+          this.score += 150 * this.currentMultiplier;
+          this.addSparks(ball.x, ball.y, '#00f3ff', 8);
+        }
+      } else if (ball.x > drainRight && ball.x <= this.width * 0.84) {
+        // Top-Right Bowing Elastic Bumper Arch
+        const t = (ball.x - drainRight) / (this.width * 0.84 - drainRight);
+        const archY = (1 - t) * (1 - t) * 14 + 2 * (1 - t) * t * topArchControlY + t * t * 14;
+        if (ball.y - ball.radius <= archY) {
+          ball.y = archY + ball.radius + 1;
+          ball.vy = Math.max(7.5, Math.abs(ball.vy) * 1.25 + 3.5);
+          ball.vx += (t < 0.5 ? 1.5 : -1.5);
+          this.topFlairGlow = 1.0;
+          soundSynth.playElasticBumperSnap();
+          this.totalBumps++;
+          this.score += 150 * this.currentMultiplier;
+          this.addSparks(ball.x, ball.y, '#00f3ff', 8);
+        }
+      } else {
+        // Solid top corner wall bounce
+        if (ball.y - ball.radius < pad) {
           ball.y = pad + ball.radius;
           ball.vy = -ball.vy * this.restitution;
           this.addSparks(ball.x, ball.y, ball.color, 4);
         }
-      } else if (ball.y + ball.radius > this.height - 10) {
-        // Bottom Gutter Drain Check (Narrowed by 50%!)
-        if (ball.x >= drainLeft && ball.x <= drainRight) {
+      }
+
+      // Bottom Wall, Bottom Bowing Elastic Bumpers & Bottom Gutter Drain
+      const botArchControlY = (this.height - 38) - this.bottomFlairGlow * 10;
+      if (ball.x >= drainLeft && ball.x <= drainRight) {
+        if (ball.y + ball.radius > this.height - 10) {
           // Ball drains into the bottom abyss!
           this.addSparks(ball.x, this.height, '#ff0055', 18);
           this.shockwaves.push({
@@ -957,13 +1403,42 @@ export class BumperQuestEngine {
 
           this.balls.splice(bIdx, 1);
 
-          // If all balls are lost -> GAME OVER (triggers self-playing reset)
-          if (this.balls.length === 0) {
+          if (this.balls.length === 0 && !this.stasisChamber.capturedBall) {
             this.triggerGameOver();
           }
           continue;
-        } else {
-          // Solid bounce off bottom rebound walls
+        }
+      } else if (ball.x >= this.width * 0.16 && ball.x < drainLeft) {
+        // Bottom-Left Bowing Elastic Bumper Arch
+        const t = (ball.x - this.width * 0.16) / (drainLeft - this.width * 0.16);
+        const archY = (1 - t) * (1 - t) * (this.height - 14) + 2 * (1 - t) * t * botArchControlY + t * t * (this.height - 14);
+        if (ball.y + ball.radius >= archY) {
+          ball.y = archY - ball.radius - 1;
+          ball.vy = -Math.max(7.5, Math.abs(ball.vy) * 1.25 + 3.5);
+          ball.vx += (t < 0.5 ? 1.5 : -1.5);
+          this.bottomFlairGlow = 1.0;
+          soundSynth.playElasticBumperSnap();
+          this.totalBumps++;
+          this.score += 150 * this.currentMultiplier;
+          this.addSparks(ball.x, ball.y, '#ff0055', 8);
+        }
+      } else if (ball.x > drainRight && ball.x <= this.width * 0.84) {
+        // Bottom-Right Bowing Elastic Bumper Arch
+        const t = (ball.x - drainRight) / (this.width * 0.84 - drainRight);
+        const archY = (1 - t) * (1 - t) * (this.height - 14) + 2 * (1 - t) * t * botArchControlY + t * t * (this.height - 14);
+        if (ball.y + ball.radius >= archY) {
+          ball.y = archY - ball.radius - 1;
+          ball.vy = -Math.max(7.5, Math.abs(ball.vy) * 1.25 + 3.5);
+          ball.vx += (t < 0.5 ? 1.5 : -1.5);
+          this.bottomFlairGlow = 1.0;
+          soundSynth.playElasticBumperSnap();
+          this.totalBumps++;
+          this.score += 150 * this.currentMultiplier;
+          this.addSparks(ball.x, ball.y, '#ff0055', 8);
+        }
+      } else {
+        // Solid bottom corner wall bounce
+        if (ball.y + ball.radius > this.height - 10) {
           ball.y = this.height - 10 - ball.radius;
           ball.vy = -ball.vy * this.restitution;
           this.addSparks(ball.x, ball.y, ball.color, 4);
@@ -1029,6 +1504,73 @@ export class BumperQuestEngine {
             maxLife: 60,
             color: '#00f3ff',
           });
+        }
+      }
+
+      // 2.5. Secret Needle Super Flipper Collision
+      {
+        const arm = this.needleArm;
+        const tipX = arm.pivotX + Math.cos(arm.currentAngle) * arm.length;
+        const tipY = arm.pivotY + Math.sin(arm.currentAngle) * arm.length;
+
+        const seg = this.distToSegment(ball.x, ball.y, arm.pivotX, arm.pivotY, tipX, tipY);
+        const contactRadius = arm.isSuperActive ? ball.radius + 12 : ball.radius + 7;
+
+        if (seg.distance < contactRadius) {
+          const cnx = (ball.x - seg.closestX) / (seg.distance || 1);
+          const cny = (ball.y - seg.closestY) / (seg.distance || 1);
+
+          if (arm.isSuperActive) {
+            // ★ SUPER NEEDLE FLIPPER HIT! ★
+            const sweepNormX = -Math.sin(arm.currentAngle);
+            const sweepNormY = Math.cos(arm.currentAngle);
+
+            const kickSpeed = Math.max(18, Math.hypot(ball.vx, ball.vy) * 1.6 + (arm.isFlipping ? 8 : 4));
+            // Launch ball radically away from the arm and up into the arena!
+            ball.vx = sweepNormX * kickSpeed + (Math.random() - 0.5) * 4;
+            ball.vy = sweepNormY * kickSpeed - 4;
+
+            // Push ball cleanly out of collision zone
+            ball.x = seg.closestX + cnx * (contactRadius + 5);
+            ball.y = seg.closestY + cny * (contactRadius + 5);
+
+            arm.hitGlow = 1.0;
+            arm.chargeGlow = 1.0;
+            soundSynth.playSuperNeedleFlip();
+
+            this.totalBumps++;
+            this.score += 500 * this.currentMultiplier;
+
+            this.addSparks(ball.x, ball.y, '#ffea00', 20);
+            this.addSparks(ball.x, ball.y, '#00f3ff', 16);
+            this.shockwaves.push({
+              x: tipX,
+              y: tipY,
+              radius: 10,
+              maxRadius: 85,
+              color: '#ffea00',
+              alpha: 1.0,
+            });
+
+            this.notices.push({
+              text: '★ SUPER NEEDLE FLIP! ★',
+              x: seg.closestX - 25,
+              y: seg.closestY - 25,
+              vy: -0.4,
+              life: 0,
+              maxLife: 60,
+              color: '#ffea00',
+            });
+          } else {
+            // Gentle physical bounce when needle is idling on the record
+            ball.vx = (ball.vx * 0.4 + cnx * 6) * this.restitution;
+            ball.vy = (ball.vy * 0.4 + cny * 6) * this.restitution;
+            ball.x = seg.closestX + cnx * (contactRadius + 2);
+            ball.y = seg.closestY + cny * (contactRadius + 2);
+
+            this.addSparks(ball.x, ball.y, '#ffffff', 4);
+            soundSynth.playBumperChime(0);
+          }
         }
       }
 
@@ -1182,6 +1724,125 @@ export class BumperQuestEngine {
               maxLife: 55,
               color: '#ffea00',
             });
+          }
+        }
+      }
+
+      // 5.6. Top-Left Laser Slicer (Cuts a ball into twins!)
+      {
+        const s = this.slicer;
+        const sdx = ball.x - s.x;
+        const sdy = ball.y - s.y;
+        const sDist = Math.hypot(sdx, sdy);
+
+        if (sDist < s.radius + ball.radius && s.cooldownTimer <= 0) {
+          s.cooldownTimer = 1.2;
+          s.activeGlow = 1.0;
+          s.sliceCount++;
+
+          soundSynth.playLaserSlice();
+          this.totalBumps++;
+          this.score += 750 * this.currentMultiplier;
+
+          this.shockwaves.push({
+            x: s.x,
+            y: s.y,
+            radius: 10,
+            maxRadius: 75,
+            color: '#00f3ff',
+            alpha: 1.0,
+          });
+          this.addSparks(s.x, s.y, '#00f3ff', 18);
+          this.addSparks(s.x, s.y, '#ff0055', 18);
+
+          // Deflect original ball out downward-left
+          const origSpeed = Math.max(9, Math.hypot(ball.vx, ball.vy));
+          ball.vx = -Math.abs(ball.vx * 0.8) - 4;
+          ball.vy = Math.abs(ball.vy * 0.8) + 4;
+          ball.radius = Math.max(6.5, ball.radius * 0.82); // Sliced slightly sleeker
+          ball.x = s.x + 14;
+          ball.y = s.y + 14;
+
+          // Spawn the twin sliced half!
+          if (this.balls.length < 12) {
+            const twinAngle = 0.58 + (Math.random() - 0.5) * 0.3; // Launch down-right
+            this.balls.push({
+              id: Date.now() + Math.random(),
+              x: s.x + 18,
+              y: s.y + 18,
+              vx: Math.cos(twinAngle) * (origSpeed * 1.1 + 3),
+              vy: Math.sin(twinAngle) * (origSpeed * 1.1 + 3),
+              radius: ball.radius,
+              color: '#ff00aa',
+              trail: [],
+              lastBounceTime: 0,
+              visitedFlippers: new Set(),
+              visitedMultipliers: new Set(),
+            });
+          }
+
+          this.notices.push({
+            text: '⚔️ BALL SLICED IN HALF! x2',
+            x: s.x + 40,
+            y: s.y + 30,
+            vy: 0.3,
+            life: 0,
+            maxLife: 65,
+            color: '#00f3ff',
+          });
+        }
+      }
+
+      // 5.7. Top-Right Stasis Capture Chamber (Captures ball for 15s then releases!)
+      {
+        const sc = this.stasisChamber;
+        if (!sc.capturedBall) {
+          const cdx = ball.x - sc.x;
+          const cdy = ball.y - sc.y;
+          const cDist = Math.hypot(cdx, cdy);
+
+          if (cDist < sc.radius + ball.radius) {
+            // Trap the ball in stasis for 15 seconds!
+            sc.capturedBall = {
+              id: ball.id,
+              color: ball.color,
+              radius: ball.radius,
+              timer: 15.0,
+              maxTimer: 15.0,
+              orbitAngle: 0,
+            };
+            sc.activeGlow = 1.0;
+            soundSynth.playStasisCapture();
+
+            this.shockwaves.push({
+              x: sc.x,
+              y: sc.y,
+              radius: 8,
+              maxRadius: 85,
+              color: '#a855f7',
+              alpha: 1.0,
+            });
+            this.addSparks(sc.x, sc.y, '#a855f7', 20);
+            this.addSparks(sc.x, sc.y, '#ffffff', 10);
+
+            this.notices.push({
+              text: '🔒 CAPTURED! (15 SECONDS)',
+              x: sc.x - 55,
+              y: sc.y + 30,
+              vy: 0.3,
+              life: 0,
+              maxLife: 80,
+              color: '#a855f7',
+            });
+
+            // Remove captured ball from active playfield balls
+            this.balls.splice(bIdx, 1);
+
+            // Game over only if no balls left AND no ball in stasis!
+            if (this.balls.length === 0 && !this.stasisChamber.capturedBall) {
+              this.triggerGameOver();
+            }
+            continue;
           }
         }
       }
@@ -1627,6 +2288,9 @@ export class BumperQuestEngine {
     // 7.5. Draw Spiked Corner Pinwheels (under bottom flippers)
     this.drawSpikedPinwheels(ctx);
 
+    // 7.6. Draw Top Corner Gadgets (Laser Slicer & Stasis Capture Chamber)
+    this.drawTopCornerGadgets(ctx);
+
     // 8. Draw Quad-Flippers
     this.drawFlippers(ctx);
 
@@ -1641,6 +2305,9 @@ export class BumperQuestEngine {
 
     // 12. Draw Game State Overlay (Wave Clear or Game Over Self-Playing Reset)
     this.drawGameStateOverlay(ctx);
+
+    // 13. Draw Pause Overlay
+    this.drawPauseOverlay(ctx);
 
     ctx.restore();
   }
@@ -1842,34 +2509,79 @@ export class BumperQuestEngine {
       ctx.stroke();
     }
 
-    // 3. Center Vinyl Label (Retro neon record sticker)
-    const labelR = r * 0.38;
-    ctx.fillStyle = this.turntable.labelColor;
+    // 3. Center Vinyl Label (Retro authentic 45-RPM record sticker)
+    const labelR = r * 0.40;
+    
+    // Rich vinyl label red gradient
+    const labelGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, labelR);
+    labelGrad.addColorStop(0, '#f43f5e');
+    labelGrad.addColorStop(0.5, '#e11d48');
+    labelGrad.addColorStop(1, '#9f1239');
+    ctx.fillStyle = labelGrad;
     ctx.beginPath();
     ctx.arc(0, 0, labelR, 0, Math.PI * 2);
     ctx.fill();
 
-    // Label border
-    ctx.strokeStyle = '#ffffff';
+    // Outer gold foil ring
+    ctx.strokeStyle = '#fbbf24';
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Spindle Hole
-    ctx.fillStyle = '#050508';
+    // Inner concentric ring
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
+    ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.arc(0, 0, 8, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
-    ctx.lineWidth = 1.5;
+    ctx.arc(0, 0, labelR * 0.72, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Label typography & RPM art
+    // Spindle Hole & Brass 45-RPM Center Adapter (Tapping here toggles pause!)
+    const spindleR = Math.max(10, labelR * 0.28);
+    ctx.fillStyle = this.isPaused ? '#31102b' : '#0a0a14';
+    ctx.beginPath();
+    ctx.arc(0, 0, spindleR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = this.isPaused ? '#ffea00' : '#fbbf24';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Inside Spindle: Glowing Pause Symbol ❚❚ or Resume Symbol ▶
+    if (this.isPaused) {
+      ctx.fillStyle = '#ffea00';
+      ctx.fillRect(-4.5, -6, 3, 12);
+      ctx.fillRect(1.5, -6, 3, 12);
+    } else {
+      // Sleek subtle pause bars in the brass spindle
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.fillRect(-3.5, -4.5, 2.5, 9);
+      ctx.fillRect(1, -4.5, 2.5, 9);
+    }
+
+    // Record Label Typography:
+    // "BumperQuest" (Record Title)
     ctx.fillStyle = '#ffffff';
-    ctx.font = '700 8px monospace';
+    ctx.font = '900 8.5px "Press Start 2P", monospace';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('SPIN-VORTEX', 0, -labelR * 0.45);
-    ctx.fillText(`${this.settings.rpm} RPM`, 0, labelR * 0.45);
+    ctx.shadowColor = '#000000';
+    ctx.shadowBlur = 4;
+    ctx.fillText('BumperQuest', 0, -labelR * 0.46);
+
+    // "by: BostonyFX" (Record Label / Artist ID)
+    ctx.font = '700 7px monospace';
+    ctx.fillStyle = '#fef08a';
+    ctx.shadowBlur = 2;
+    ctx.fillText('by: BostonyFX', 0, -labelR * 0.26);
+
+    // "CAT# BFX-45 • 45 RPM"
+    ctx.font = '600 6px monospace';
+    ctx.fillStyle = '#f1f5f9';
+    ctx.shadowBlur = 0;
+    ctx.fillText(`CAT# BFX-45 • ${this.settings.rpm} RPM`, 0, labelR * 0.40);
+
+    // Tap to Pause / Resume hint along bottom
+    ctx.font = '700 5.5px monospace';
+    ctx.fillStyle = this.isPaused ? '#ffea00' : 'rgba(255, 255, 255, 0.7)';
+    ctx.fillText(this.isPaused ? '▶ TAP TO RESUME' : '❚❚ TAP TO PAUSE', 0, labelR * 0.58);
 
     // Strobe timing markers along the disc edge
     const strobeMarks = 24;
@@ -1885,30 +2597,179 @@ export class BumperQuestEngine {
 
     ctx.restore();
 
-    // Tone arm / Stylus visual pointing into groove
-    ctx.save();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
-    ctx.lineWidth = 2.5;
-    const armPivotX = cx + r * 1.35;
-    const armPivotY = cy - r * 1.1;
-    const stylusX = cx + r * 0.75;
-    const stylusY = cy - r * 0.25;
+    // Secret Super Flipper Needle Tonearm
+    this.drawNeedleArm(ctx);
+  }
 
+  private drawNeedleArm(ctx: CanvasRenderingContext2D) {
+    const arm = this.needleArm;
+    const time = performance.now() * 0.001;
+
+    const pivotX = arm.pivotX;
+    const pivotY = arm.pivotY;
+    const angle = arm.currentAngle;
+    const length = arm.length;
+    const tipX = pivotX + Math.cos(angle) * length;
+    const tipY = pivotY + Math.sin(angle) * length;
+
+    // Knee bend for authentic S-shaped audiophile tonearm
+    const knee1Dist = length * 0.42;
+    const knee1Angle = angle - 0.14;
+    const knee1X = pivotX + Math.cos(knee1Angle) * knee1Dist;
+    const knee1Y = pivotY + Math.sin(knee1Angle) * knee1Dist;
+
+    const knee2Dist = length * 0.78;
+    const knee2Angle = angle + 0.08;
+    const knee2X = pivotX + Math.cos(knee2Angle) * knee2Dist;
+    const knee2Y = pivotY + Math.sin(knee2Angle) * knee2Dist;
+
+    ctx.save();
+
+    // 1. Motion Trail / Sweep Fan when Super Flipper is Active
+    if (arm.isSuperActive) {
+      const fanAngle1 = Math.min(arm.baseAngle, arm.currentAngle) - 0.1;
+      const fanAngle2 = Math.max(arm.baseAngle, arm.currentAngle) + 0.1;
+      const fanGrad = ctx.createRadialGradient(pivotX, pivotY, 10, pivotX, pivotY, length + 20);
+      fanGrad.addColorStop(0, 'rgba(255, 234, 0, 0)');
+      fanGrad.addColorStop(0.5, 'rgba(255, 234, 0, 0.12)');
+      fanGrad.addColorStop(1, 'rgba(0, 243, 255, 0.18)');
+
+      ctx.fillStyle = fanGrad;
+      ctx.beginPath();
+      ctx.moveTo(pivotX, pivotY);
+      ctx.arc(pivotX, pivotY, length + 15, fanAngle1, fanAngle2);
+      ctx.closePath();
+      ctx.fill();
+
+      // Sweeping targeting guide laser from stylus
+      ctx.strokeStyle = `rgba(255, 234, 0, ${0.3 + 0.3 * Math.sin(time * 10)})`;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(tipX, tipY);
+      ctx.lineTo(tipX + Math.cos(angle - Math.PI / 2) * 55, tipY + Math.sin(angle - Math.PI / 2) * 55);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // 2. Heavy Gimbal Pivot Base with Counterweight
+    // Counterweight extending rearward
+    const rearAngle = angle + Math.PI;
+    const weightX = pivotX + Math.cos(rearAngle) * 22;
+    const weightY = pivotY + Math.sin(rearAngle) * 22;
+
+    ctx.strokeStyle = arm.isSuperActive ? '#ffea00' : 'rgba(255, 255, 255, 0.6)';
+    ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.arc(armPivotX, armPivotY, 8, 0, Math.PI * 2);
-    ctx.fillStyle = '#334155';
+    ctx.moveTo(pivotX, pivotY);
+    ctx.lineTo(weightX, weightY);
+    ctx.stroke();
+
+    // Cylindrical counterweight bob
+    ctx.fillStyle = arm.isSuperActive ? '#451a03' : '#1e293b';
+    ctx.strokeStyle = arm.isSuperActive ? '#ffea00' : '#94a3b8';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(weightX, weightY, 7.5, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
 
+    // Main Gimbal Pivot Bezel
+    ctx.fillStyle = arm.isSuperActive ? '#271a00' : '#0f172a';
+    ctx.strokeStyle = arm.isSuperActive ? (arm.hitGlow > 0 ? '#ffffff' : '#ffea00') : '#64748b';
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = arm.isSuperActive ? '#ffea00' : '#00f3ff';
+    ctx.shadowBlur = arm.isSuperActive ? 14 + arm.chargeGlow * 12 : 4;
     ctx.beginPath();
-    ctx.moveTo(armPivotX, armPivotY);
-    ctx.lineTo(stylusX + 15, stylusY - 15);
-    ctx.lineTo(stylusX, stylusY);
+    ctx.arc(pivotX, pivotY, 11, 0, Math.PI * 2);
+    ctx.fill();
     ctx.stroke();
 
-    // Stylus cartridge tip
-    ctx.fillStyle = '#ffaa00';
-    ctx.fillRect(stylusX - 3, stylusY - 3, 6, 6);
+    // Center pivot bearing pip
+    ctx.fillStyle = arm.isSuperActive ? '#ffea00' : '#00f3ff';
+    ctx.beginPath();
+    ctx.arc(pivotX, pivotY, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 3. S-Shaped Tonearm Tube
+    ctx.beginPath();
+    ctx.moveTo(pivotX, pivotY);
+    ctx.bezierCurveTo(knee1X, knee1Y, knee2X, knee2Y, tipX, tipY);
+
+    if (arm.isSuperActive) {
+      // Super flipper energy blade beam
+      ctx.strokeStyle = arm.hitGlow > 0 ? '#ffffff' : '#ffea00';
+      ctx.lineWidth = 4.5;
+      ctx.shadowColor = '#00f3ff';
+      ctx.shadowBlur = 20;
+      ctx.stroke();
+
+      // Core hot beam
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else {
+      // Sleek brushed titanium tube
+      ctx.strokeStyle = '#cbd5e1';
+      ctx.lineWidth = 2.8;
+      ctx.shadowBlur = 2;
+      ctx.stroke();
+    }
+
+    // 4. Cartridge & Stylus Head
+    ctx.save();
+    ctx.translate(tipX, tipY);
+    ctx.rotate(angle);
+
+    if (arm.isSuperActive) {
+      // Kinetic impulse super-stylus head
+      ctx.fillStyle = arm.hitGlow > 0 ? '#ffffff' : '#ffaa00';
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#ffea00';
+      ctx.shadowBlur = 18;
+      ctx.fillRect(-4, -5, 14, 10);
+      ctx.strokeRect(-4, -5, 14, 10);
+
+      // Plasma needle tip
+      ctx.fillStyle = '#00f3ff';
+      ctx.beginPath();
+      ctx.moveTo(10, 0);
+      ctx.lineTo(16, -4);
+      ctx.lineTo(16, 4);
+      ctx.closePath();
+      ctx.fill();
+
+      // Sparks emitting from active cartridge
+      if (Math.random() < 0.35) {
+        this.addSparks(tipX, tipY, '#ffea00', 2);
+      }
+    } else {
+      // High-end audiophile cartridge
+      ctx.fillStyle = '#ffaa00';
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(-3, -4, 10, 8);
+      ctx.strokeRect(-3, -4, 10, 8);
+
+      // Ruby stylus pin
+      ctx.fillStyle = '#ff0055';
+      ctx.beginPath();
+      ctx.arc(7, 0, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // 5. Pulsing Status Indicator on Base
+    if (arm.isSuperActive) {
+      ctx.font = '700 7px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(255, 234, 0, ${0.7 + 0.3 * Math.sin(time * 8)})`;
+      ctx.shadowColor = '#ffea00';
+      ctx.shadowBlur = 8;
+      ctx.fillText('⚡ SUPER FLIPPER', pivotX, pivotY - 18);
+    }
+
     ctx.restore();
   }
 
@@ -2265,11 +3126,11 @@ export class BumperQuestEngine {
     ctx.lineTo(w - 18, h - 18);
     ctx.stroke();
 
-    // Top Wall segments
+    // Top Outer Wall segments (leaving opening for Bowing Elastic Bumpers & Drain)
     ctx.beginPath();
     ctx.moveTo(18, 18);
-    ctx.lineTo(drainL, 18);
-    ctx.moveTo(drainR, 18);
+    ctx.lineTo(w * 0.16, 14);
+    ctx.moveTo(w * 0.84, 14);
     ctx.lineTo(w - 18, 18);
     ctx.stroke();
 
@@ -2294,7 +3155,46 @@ export class BumperQuestEngine {
     ctx.fillText('▲ DRAIN ▲', w / 2, 18);
     ctx.restore();
 
-    // 4. Bottom Kinetic Vector Rebound Arches
+    // 3.5. Top Kinetic Vector Rebound Arches (Bowing Elastic Bumpers)
+    const topGlow = this.topFlairGlow;
+    ctx.strokeStyle = topGlow > 0 ? '#ffffff' : '#00f3ff';
+    ctx.lineWidth = 2.5 + topGlow * 2.5;
+    ctx.shadowColor = topGlow > 0 ? '#00f3ff' : '#a855f7';
+    ctx.shadowBlur = 10 + topGlow * 18;
+
+    // Top-Left Bowing Elastic Rebound Arch
+    ctx.beginPath();
+    ctx.moveTo(w * 0.16, 14);
+    ctx.quadraticCurveTo(w * 0.30, 38 + topGlow * 12, drainL, 14);
+    ctx.stroke();
+
+    // Top-Right Bowing Elastic Rebound Arch
+    ctx.beginPath();
+    ctx.moveTo(drainR, 14);
+    ctx.quadraticCurveTo(w * 0.70, 38 + topGlow * 12, w * 0.84, 14);
+    ctx.stroke();
+
+    // Rubber tension bands behind top rebound arches
+    ctx.strokeStyle = 'rgba(0, 243, 255, 0.22)';
+    ctx.lineWidth = 1.2;
+    for (let i = 1; i <= 3; i++) {
+      const frac = i / 4;
+      const xL = w * 0.16 + (drainL - w * 0.16) * frac;
+      const yL = (1 - frac) * (1 - frac) * 14 + 2 * (1 - frac) * frac * (38 + topGlow * 12) + frac * frac * 14;
+      ctx.beginPath();
+      ctx.moveTo(xL, 8);
+      ctx.lineTo(xL, yL);
+      ctx.stroke();
+
+      const xR = drainR + (w * 0.84 - drainR) * frac;
+      const yR = (1 - frac) * (1 - frac) * 14 + 2 * (1 - frac) * frac * (38 + topGlow * 12) + frac * frac * 14;
+      ctx.beginPath();
+      ctx.moveTo(xR, 8);
+      ctx.lineTo(xR, yR);
+      ctx.stroke();
+    }
+
+    // 4. Bottom Kinetic Vector Rebound Arches (Bowing Elastic Bumpers)
     ctx.strokeStyle = glow > 0 ? '#ffffff' : '#ff0055';
     ctx.lineWidth = 2.5 + glow * 2.5;
     ctx.shadowColor = glow > 0 ? '#ff0055' : '#00f3ff';
@@ -2311,6 +3211,26 @@ export class BumperQuestEngine {
     ctx.moveTo(drainR, h - 14);
     ctx.quadraticCurveTo(w * 0.70, h - 38 - glow * 12, w * 0.84, h - 14);
     ctx.stroke();
+
+    // Rubber tension bands behind bottom rebound arches
+    ctx.strokeStyle = 'rgba(255, 0, 85, 0.22)';
+    ctx.lineWidth = 1.2;
+    for (let i = 1; i <= 3; i++) {
+      const frac = i / 4;
+      const xL = w * 0.16 + (drainL - w * 0.16) * frac;
+      const yL = (1 - frac) * (1 - frac) * (h - 14) + 2 * (1 - frac) * frac * (h - 38 - glow * 12) + frac * frac * (h - 14);
+      ctx.beginPath();
+      ctx.moveTo(xL, h - 8);
+      ctx.lineTo(xL, yL);
+      ctx.stroke();
+
+      const xR = drainR + (w * 0.84 - drainR) * frac;
+      const yR = (1 - frac) * (1 - frac) * (h - 14) + 2 * (1 - frac) * frac * (h - 38 - glow * 12) + frac * frac * (h - 14);
+      ctx.beginPath();
+      ctx.moveTo(xR, h - 8);
+      ctx.lineTo(xR, yR);
+      ctx.stroke();
+    }
 
     // 5. Center Bottom Gutter Drain Aperture [drainL to drainR] (50% narrower!)
     ctx.save();
@@ -2517,6 +3437,204 @@ export class BumperQuestEngine {
     }
   }
 
+  private drawTopCornerGadgets(ctx: CanvasRenderingContext2D) {
+    const time = performance.now() * 0.001;
+
+    // 1. Top-Left Laser Slicer (Splits ball into twins!)
+    {
+      const s = this.slicer;
+      ctx.save();
+      ctx.translate(s.x, s.y);
+
+      const glow = s.activeGlow;
+      const primaryColor = glow > 0 ? '#ffffff' : '#00f3ff';
+      const accentColor = '#ff0055';
+
+      // Outer bezel with hazard glow
+      ctx.strokeStyle = `rgba(0, 243, 255, ${0.4 + glow * 0.5})`;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#00f3ff';
+      ctx.shadowBlur = 8 + glow * 16;
+      ctx.beginPath();
+      ctx.arc(0, 0, s.radius + 5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Spinning high-speed buzz-blade teeth
+      ctx.save();
+      ctx.rotate(s.angle);
+      const bladeTeeth = 6;
+      ctx.beginPath();
+      for (let i = 0; i < bladeTeeth; i++) {
+        const a1 = (i / bladeTeeth) * Math.PI * 2;
+        const a2 = a1 + (Math.PI / bladeTeeth);
+        const rOut = s.radius + 3;
+        const rIn = s.radius * 0.65;
+        const x1 = Math.cos(a1) * rOut;
+        const y1 = Math.sin(a1) * rOut;
+        const x2 = Math.cos(a2) * rIn;
+        const y2 = Math.sin(a2) * rIn;
+        if (i === 0) ctx.moveTo(x1, y1);
+        else ctx.lineTo(x1, y1);
+        ctx.lineTo(x2, y2);
+      }
+      ctx.closePath();
+      ctx.fillStyle = glow > 0 ? '#ffffff' : '#1e293b';
+      ctx.fill();
+      ctx.strokeStyle = primaryColor;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      ctx.restore();
+
+      // Center laser aperture
+      ctx.beginPath();
+      ctx.arc(0, 0, s.radius * 0.52, 0, Math.PI * 2);
+      ctx.fillStyle = '#080c14';
+      ctx.fill();
+      ctx.strokeStyle = accentColor;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+
+      // Glowing plasma laser beam slicing through the center aperture!
+      ctx.strokeStyle = glow > 0 ? '#ffffff' : `rgba(255, 0, 85, ${0.75 + 0.25 * Math.sin(time * 12)})`;
+      ctx.lineWidth = glow > 0 ? 3.5 : 2;
+      ctx.shadowColor = '#ff0055';
+      ctx.shadowBlur = 12 + glow * 10;
+      ctx.beginPath();
+      ctx.moveTo(-s.radius + 2, -s.radius + 2);
+      ctx.lineTo(s.radius - 2, s.radius - 2);
+      ctx.stroke();
+
+      // Core white laser thread
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-s.radius + 4, -s.radius + 4);
+      ctx.lineTo(s.radius - 4, s.radius - 4);
+      ctx.stroke();
+
+      // Label beneath
+      ctx.font = '700 6.5px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = primaryColor;
+      ctx.shadowColor = '#00f3ff';
+      ctx.shadowBlur = 6;
+      ctx.fillText('⚔️ SLICER', 0, s.radius + 16);
+
+      ctx.restore();
+    }
+
+    // 2. Top-Right Stasis Capture Chamber (Captures a ball for 15s then releases!)
+    {
+      const sc = this.stasisChamber;
+      ctx.save();
+      ctx.translate(sc.x, sc.y);
+
+      const isHolding = !!sc.capturedBall;
+      const glow = sc.activeGlow;
+      const ringColor = isHolding ? '#a855f7' : (glow > 0 ? '#ffffff' : '#38bdf8');
+
+      // Outer magnetic containment stator
+      ctx.strokeStyle = `rgba(168, 85, 247, ${0.4 + (isHolding ? 0.5 : 0)})`;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = ringColor;
+      ctx.shadowBlur = isHolding ? 16 : 8;
+      ctx.beginPath();
+      ctx.arc(0, 0, sc.radius + 6, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Counter-rotating magnetic flux coils
+      ctx.save();
+      ctx.rotate(sc.rotation);
+      const coils = 3;
+      for (let i = 0; i < coils; i++) {
+        const a = (i / coils) * Math.PI * 2;
+        ctx.strokeStyle = isHolding ? '#c084fc' : '#00f3ff';
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, sc.radius, a, a + Math.PI / coils);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // Swirling stasis vortex interior
+      const grad = ctx.createRadialGradient(0, 0, 2, 0, 0, sc.radius);
+      grad.addColorStop(0, isHolding ? 'rgba(168, 85, 247, 0.45)' : 'rgba(14, 165, 233, 0.2)');
+      grad.addColorStop(1, 'rgba(5, 7, 18, 0.9)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(0, 0, sc.radius - 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (isHolding && sc.capturedBall) {
+        const cb = sc.capturedBall;
+        const progress = Math.max(0, cb.timer / cb.maxTimer);
+
+        // Circular countdown progress meter arc
+        ctx.strokeStyle = '#ffea00';
+        ctx.lineWidth = 3;
+        ctx.shadowColor = '#ffea00';
+        ctx.shadowBlur = 12;
+        ctx.beginPath();
+        ctx.arc(0, 0, sc.radius + 3, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
+        ctx.stroke();
+
+        // The captured ball orbiting smoothly in the tractor beam
+        const orbR = 5;
+        const bx = Math.cos(cb.orbitAngle) * orbR;
+        const by = Math.sin(cb.orbitAngle) * orbR;
+
+        // Energy tendrils tethering ball
+        ctx.strokeStyle = 'rgba(192, 132, 252, 0.8)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(-bx, -by);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+
+        // Ball itself
+        ctx.fillStyle = cb.color;
+        ctx.shadowColor = cb.color;
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(bx, by, cb.radius * 0.85, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Huge glowing countdown timer in center
+        ctx.font = '900 10.5px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#ffea00';
+        ctx.shadowColor = '#ffea00';
+        ctx.shadowBlur = 10;
+        ctx.fillText(`${Math.ceil(cb.timer)}s`, 0, -sc.radius - 10);
+
+        ctx.font = '700 6.5px "Press Start 2P", monospace';
+        ctx.fillStyle = '#c084fc';
+        ctx.shadowBlur = 4;
+        ctx.fillText('STASIS LOCK', 0, sc.radius + 16);
+      } else {
+        // Idle pulsing target reticle
+        ctx.strokeStyle = `rgba(168, 85, 247, ${0.5 + 0.3 * Math.sin(time * 6)})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(-8, 0);
+        ctx.lineTo(8, 0);
+        ctx.moveTo(0, -8);
+        ctx.lineTo(0, 8);
+        ctx.stroke();
+
+        ctx.font = '700 6.5px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#c084fc';
+        ctx.shadowColor = '#a855f7';
+        ctx.shadowBlur = 6;
+        ctx.fillText('🔒 15s STASIS', 0, sc.radius + 16);
+      }
+
+      ctx.restore();
+    }
+  }
+
   private drawGameStateOverlay(ctx: CanvasRenderingContext2D) {
     if (this.gameState === 'playing') return;
 
@@ -2612,6 +3730,56 @@ export class BumperQuestEngine {
       ctx.shadowBlur = 0;
       ctx.fillText('ZERO-PLAYER SELF-PLAYING ARCADE // RESTARTING NEW ROUND', w / 2, h * 0.62);
     }
+
+    ctx.restore();
+  }
+
+  private drawPauseOverlay(ctx: CanvasRenderingContext2D) {
+    if (!this.isPaused) return;
+
+    const w = this.width;
+    const h = this.height;
+    const cx = this.turntable.x;
+    const cy = this.turntable.y;
+    const time = performance.now() * 0.001;
+
+    ctx.save();
+    // Translucent dark veil
+    ctx.fillStyle = 'rgba(3, 4, 10, 0.52)';
+    ctx.fillRect(0, 0, w, h);
+
+    // Glowing pause banner card in center
+    const cardW = Math.min(w * 0.85, 340);
+    const cardH = 80;
+    const cardX = cx - cardW / 2;
+    const cardY = cy - cardH / 2;
+
+    ctx.fillStyle = 'rgba(10, 15, 30, 0.92)';
+    ctx.strokeStyle = '#00f3ff';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#00f3ff';
+    ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.roundRect ? ctx.roundRect(cardX, cardY, cardW, cardH, 10) : ctx.rect(cardX, cardY, cardW, cardH);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Pause icon + title
+    ctx.font = '900 16px "Press Start 2P", monospace';
+    ctx.fillStyle = '#ffea00';
+    ctx.shadowColor = '#ffea00';
+    ctx.shadowBlur = 12;
+    ctx.fillText('❚❚ GAME PAUSED', cx, cy - 12);
+
+    // Subtitle instruction
+    ctx.font = '700 8.5px "Press Start 2P", monospace';
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.7 + 0.3 * Math.sin(time * 6)})`;
+    ctx.shadowColor = '#00f3ff';
+    ctx.shadowBlur = 6;
+    ctx.fillText('TAP RECORD TO RESUME', cx, cy + 16);
 
     ctx.restore();
   }

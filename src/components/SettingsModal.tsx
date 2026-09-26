@@ -3,6 +3,8 @@ import { X, Sliders, Volume2, VolumeX, Disc, Eye, Zap, RefreshCw } from 'lucide-
 import { GameSettings } from '../game/physics';
 import { soundSynth } from '../audio/SoundSynthesizer';
 
+export const APP_VERSION = 'v1.09252026.2231';
+
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -67,6 +69,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <h2 className="text-base font-bold font-arcade tracking-wider text-cyan-400">
               SIMULATOR SETTINGS
             </h2>
+            <span className="font-mono text-[10px] text-cyan-300 font-bold bg-cyan-950/70 border border-cyan-500/40 px-2 py-0.5 rounded shadow-sm">
+              {APP_VERSION}
+            </span>
           </div>
           <button
             onClick={onClose}
@@ -78,6 +83,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Settings Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-5 text-sm">
+          {/* Versioning & Build Info Card */}
+          <div className="flex items-center justify-between p-3 rounded-lg border border-cyan-500/30 bg-cyan-950/20">
+            <div>
+              <span className="font-mono text-xs font-bold text-cyan-300">System Build & Version</span>
+              <p className="text-[11px] text-slate-400 font-mono">BumperQuest by: BostonyFX • Eastern USA (24h)</p>
+            </div>
+            <span className="font-mono text-xs font-bold text-amber-300 bg-amber-950/50 border border-amber-500/40 px-2.5 py-1 rounded shadow-sm">
+              {APP_VERSION}
+            </span>
+          </div>
           {/* Turntable Speed */}
           <div className="space-y-2">
             <label className="flex items-center gap-2 font-mono text-xs text-cyan-300 font-bold uppercase">
@@ -263,13 +278,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
         {/* Footer */}
         <div className="px-6 py-3.5 border-t border-cyan-500/20 bg-[#080912] flex items-center justify-between">
-          <button
-            onClick={onResetGame}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-rose-950/60 border border-rose-500/40 text-rose-300 hover:bg-rose-900/80 font-mono text-xs transition-colors"
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-            Reset Board
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onResetGame}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-rose-950/60 border border-rose-500/40 text-rose-300 hover:bg-rose-900/80 font-mono text-xs transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Reset Board
+            </button>
+            <span className="hidden sm:inline font-mono text-[11px] text-cyan-400/80 tracking-wider">
+              {APP_VERSION}
+            </span>
+          </div>
           <button
             onClick={onClose}
             className="px-5 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded font-mono text-xs font-bold transition-colors shadow-md shadow-cyan-600/30"
