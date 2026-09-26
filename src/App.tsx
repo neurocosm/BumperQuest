@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Volume2 } from 'lucide-react';
+import { Volume2, RefreshCw, Zap } from 'lucide-react';
 import { BumperQuestEngine, GameSettings } from './game/physics';
 import { soundSynth } from './audio/SoundSynthesizer';
 import { HUD } from './components/HUD';
 import { TiltVirtualPad } from './components/TiltVirtualPad';
 import { SettingsModal } from './components/SettingsModal';
+import { checkForAppUpdate, dumpCachesAndReload, CheckUpdateResult } from './utils/versionManager';
 
 export const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -55,6 +56,19 @@ export const App: React.FC = () => {
 
   // Modals
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // Versioning & Update Detection
+  const [availableUpdate, setAvailableUpdate] = useState<CheckUpdateResult | null>(null);
+  const [isUpdating, setIsUpdating] = useState(false);
+
+  // Check for updates on game load
+  useEffect(() => {
+    checkForAppUpdate().then((result) => {
+      if (result.hasUpdate) {
+        setAvailableUpdate(result);
+      }
+    });
+  }, []);
 
   // Listen to audio synthesizer state & unlock on global user gestures
   useEffect(() => {
@@ -473,6 +487,35 @@ export const App: React.FC = () => {
         </div>
       )}
 
+      {/* On-Load Update Alert Banner */}
+      {availableUpdate?.hasUpdate && (
+        <div className="absolute top-12 sm:top-14 left-0 right-0 z-50 flex justify-center pointer-events-none px-3 animate-in fade-in slide-in-from-top-2">
+          <div className="max-w-[94vw] flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#1c1404]/95 border-2 border-amber-400 text-amber-300 font-mono text-xs shadow-2xl shadow-amber-950/80 pointer-events-auto backdrop-blur-md">
+            <span className="font-arcade text-[9px] sm:text-[10px] text-amber-300 glow-amber whitespace-nowrap">
+              UPDATE {availableUpdate.latestVersion} AVAILABLE!
+            </span>
+            <button
+              onClick={async () => {
+                setIsUpdating(true);
+                await dumpCachesAndReload();
+              }}
+              disabled={isUpdating}
+              className="px-2.5 py-0.5 rounded-full bg-amber-400 hover:bg-amber-300 text-black font-arcade text-[9px] sm:text-[10px] font-bold shadow-md shadow-amber-400/50 animate-pulse transition-all cursor-pointer whitespace-nowrap flex items-center gap-1"
+            >
+              <Zap className="w-3 h-3 fill-black" />
+              {isUpdating ? 'UPDATING...' : 'PRESS TO UPDATE'}
+            </button>
+            <button
+              onClick={() => setAvailableUpdate(null)}
+              className="text-slate-400 hover:text-white px-1 text-xs"
+              title="Dismiss for now"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Retro Arcade HUD */}
       <HUD
         score={score}
@@ -533,7 +576,17 @@ export const App: React.FC = () => {
         onUpdateSettings={(newVals) => setSettings(prev => ({ ...prev, ...newVals }))}
         onResetGame={handleResetGame}
         onRequestSensorPermission={requestSensorPermission}
+        knownUpdate={availableUpdate}
       />
+
+      {/* Fullscreen Cache Dump & Reload Overlay */}
+      {isUpdating && (
+        <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/95 text-amber-300 font-arcade text-xs gap-4 p-6 text-center animate-in fade-in duration-150">
+          <RefreshCw className="w-10 h-10 text-amber-400 animate-spin" />
+          <span className="text-sm font-bold tracking-wider">DUMPING CACHE & RELOADING...</span>
+          <span className="font-mono text-[11px] text-slate-400">Purging CacheStorage & Service Workers for clean build</span>
+        </div>
+      )}
     </div>
   );
 };
