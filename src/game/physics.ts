@@ -10,6 +10,18 @@ export interface Ball {
   color: string;
   trail: { x: number; y: number; time: number; speed: number }[];
   lastBounceTime: number;
+  visitedFlippers: Set<string>;
+  visitedMultipliers: Set<number>;
+}
+
+export interface FloatingNotice {
+  text: string;
+  x: number;
+  y: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  color: string;
 }
 
 export interface Flipper {
@@ -42,6 +54,7 @@ export interface GeometricHazard {
   multiplier: number;
   color: string;
   hitGlow: number;
+  isLit?: boolean;
   // Specific movement profiles
   orbitAngle?: number;
   orbitRadius?: number;
@@ -68,6 +81,8 @@ export interface DotNode {
   radius: number;
   collected: boolean;
   respawnTime: number;
+  color?: string;
+  isBonus?: boolean;
 }
 
 export interface Particle {
@@ -90,6 +105,19 @@ export interface Shockwave {
   alpha: number;
 }
 
+export interface SpikedPinwheel {
+  id: 'left' | 'right';
+  x: number;
+  y: number;
+  radius: number;
+  spikeLength: number;
+  spikeCount: number;
+  angle: number;
+  rotationSpeed: number;
+  hitGlow: number;
+  color: string;
+}
+
 export interface GameSettings {
   autoPilot: boolean;
   rpm: number; // 33, 45, 78, 120
@@ -99,6 +127,7 @@ export interface GameSettings {
   crtScanlines: boolean;
   vectorGlow: boolean;
   soundEnabled: boolean;
+  spikedPinwheels?: boolean;
 }
 
 export class BumperQuestEngine {
@@ -110,11 +139,17 @@ export class BumperQuestEngine {
   // Game elements
   public balls: Ball[] = [];
   public flippers: Flipper[] = [];
+  public pinwheels: SpikedPinwheel[] = [];
   public hazards: GeometricHazard[] = [];
   public fences: ElectricFence[] = [];
   public dots: DotNode[] = [];
   public particles: Particle[] = [];
   public shockwaves: Shockwave[] = [];
+  public notices: FloatingNotice[] = [];
+  public onQuadBonus?: (ballCount: number) => void;
+  public onMultiplierMatrixBonus?: (ballCount: number) => void;
+  public onGameActivity?: () => void;
+  public litMultiplierIds: Set<number> = new Set();
 
   // Turntable center bumper
   public turntable = {
@@ -153,7 +188,20 @@ export class BumperQuestEngine {
   public totalBumps: number = 0;
   public totalScratches: number = 0;
   public currentMultiplier: number = 1;
+  public bottomFlairGlow: number = 0;
   public fps: number = 60;
+
+  // Wave & Win/Loss Game States
+  public wave: number = 1;
+  public dotsTotal: number = 0;
+  public dotsRemaining: number = 0;
+  public gameState: 'playing' | 'wave_cleared' | 'game_over' = 'playing';
+  public stateCountdown: number = 0;
+
+  public onDotsUpdate?: (remaining: number, total: number) => void;
+  public onWaveClear?: (wave: number, score: number) => void;
+  public onGameOver?: (score: number) => void;
+  public onStateChange?: (state: 'playing' | 'wave_cleared' | 'game_over', countdown: number, wave: number) => void;
 
   // Settings
   public settings: GameSettings = {
@@ -165,6 +213,7 @@ export class BumperQuestEngine {
     crtScanlines: true,
     vectorGlow: true,
     soundEnabled: true,
+    spikedPinwheels: true,
   };
 
   private lastTime: number = 0;
@@ -199,6 +248,7 @@ export class BumperQuestEngine {
     this.spider.orbitRadius = this.turntable.radius + 32;
 
     this.setupFlippers();
+    this.setupPinwheels();
   }
 
   public initEntities() {
@@ -214,6 +264,9 @@ export class BumperQuestEngine {
 
     // Setup 4 corner flippers
     this.setupFlippers();
+
+    // Setup Spiked Corner Pinwheels (under bottom flippers)
+    this.setupPinwheels();
 
     // Setup Moving Geometric Hazards (Ghosts with multipliers)
     this.setupHazards();
@@ -244,6 +297,8 @@ export class BumperQuestEngine {
       color,
       trail: [],
       lastBounceTime: 0,
+      visitedFlippers: new Set<string>(),
+      visitedMultipliers: new Set<number>(),
     });
   }
 
@@ -256,22 +311,22 @@ export class BumperQuestEngine {
   private setupFlippers() {
     const w = this.width;
     const h = this.height;
-    const flipperLen = Math.min(w, h) * 0.15;
+    const isPortrait = h > w;
+    const flipperLen = Math.min(w, h) * (isPortrait ? 0.16 : 0.15);
 
-    // 4 Corners:
-    // Top-Left (TL): pivot at top-left corner region, angled downward-right
-    // Top-Right (TR): pivot at top-right, angled downward-left
-    // Bottom-Left (BL): pivot at bottom-left, angled upward-right
-    // Bottom-Right (BR): pivot at bottom-right, angled upward-left
+    const marginX = isPortrait ? w * 0.14 : w * 0.12;
+    // Safe margins away from the top status bar and bottom apron flairs
+    const topMarginY = isPortrait ? Math.max(72, h * 0.12) : h * 0.13;
+    const bottomMarginY = isPortrait ? Math.min(h - 64, h * 0.86) : h * 0.86;
 
     this.flippers = [
       {
         id: 'TL',
-        pivotX: w * 0.12,
-        pivotY: h * 0.14,
+        pivotX: marginX,
+        pivotY: topMarginY,
         length: flipperLen,
         baseAngle: 0.75, // Radians pointing down-right
-        strokeAngle: -0.5,
+        strokeAngle: -0.55,
         currentAngle: 0.75,
         angularVelocity: 0,
         isFlipping: false,
@@ -281,11 +336,11 @@ export class BumperQuestEngine {
       },
       {
         id: 'TR',
-        pivotX: w * 0.88,
-        pivotY: h * 0.14,
+        pivotX: w - marginX,
+        pivotY: topMarginY,
         length: flipperLen,
         baseAngle: Math.PI - 0.75, // Radians pointing down-left
-        strokeAngle: 0.5,
+        strokeAngle: 0.55,
         currentAngle: Math.PI - 0.75,
         angularVelocity: 0,
         isFlipping: false,
@@ -295,11 +350,11 @@ export class BumperQuestEngine {
       },
       {
         id: 'BL',
-        pivotX: w * 0.12,
-        pivotY: h * 0.86,
+        pivotX: marginX,
+        pivotY: bottomMarginY,
         length: flipperLen,
         baseAngle: -0.75, // Radians pointing up-right
-        strokeAngle: 0.5,
+        strokeAngle: 0.55,
         currentAngle: -0.75,
         angularVelocity: 0,
         isFlipping: false,
@@ -309,17 +364,58 @@ export class BumperQuestEngine {
       },
       {
         id: 'BR',
-        pivotX: w * 0.88,
-        pivotY: h * 0.86,
+        pivotX: w - marginX,
+        pivotY: bottomMarginY,
         length: flipperLen,
         baseAngle: -Math.PI + 0.75, // Radians pointing up-left
-        strokeAngle: -0.5,
+        strokeAngle: -0.55,
         currentAngle: -Math.PI + 0.75,
         angularVelocity: 0,
         isFlipping: false,
         activeGlow: 0,
         label: 'C',
         triggerKey: 'KeyC',
+      },
+    ];
+  }
+
+  private setupPinwheels() {
+    const w = this.width;
+    const h = this.height;
+    const isPortrait = h > w;
+    const marginX = isPortrait ? w * 0.14 : w * 0.12;
+    const bottomMarginY = isPortrait ? Math.min(h - 64, h * 0.86) : h * 0.86;
+
+    // Placed in the bottom corners directly under the lower flipper pivots
+    const leftX = Math.max(34, marginX * 0.60);
+    const rightX = Math.min(w - 34, w - marginX * 0.60);
+    const pinwheelY = Math.min(h - 26, bottomMarginY + (h - bottomMarginY) * 0.48);
+    const r = Math.min(22, Math.max(16, Math.min(w, h) * 0.038));
+
+    this.pinwheels = [
+      {
+        id: 'left',
+        x: leftX,
+        y: pinwheelY,
+        radius: r,
+        spikeLength: r * 0.55,
+        spikeCount: 8,
+        angle: 0,
+        rotationSpeed: 0.13, // Fast clockwise spin (whipping balls up & in)
+        hitGlow: 0,
+        color: '#ffaa00',
+      },
+      {
+        id: 'right',
+        x: rightX,
+        y: pinwheelY,
+        radius: r,
+        spikeLength: r * 0.55,
+        spikeCount: 8,
+        angle: 0,
+        rotationSpeed: -0.13, // Fast counter-clockwise spin (whipping balls up & in)
+        hitGlow: 0,
+        color: '#00f3ff',
       },
     ];
   }
@@ -433,17 +529,21 @@ export class BumperQuestEngine {
     ];
   }
 
-  private setupDotGrid() {
+  public setupDotGrid(wave: number = 1) {
     this.dots = [];
     const cx = this.width / 2;
     const cy = this.height / 2;
     const rOuter = Math.min(this.width, this.height) * 0.38;
-    const rInner = this.turntable.radius + 40;
+    const rInner = this.turntable.radius + 36;
 
-    // Rings of retro arcade dots
-    for (let ring = 0; ring < 3; ring++) {
-      const ringRadius = rInner + (rOuter - rInner) * ((ring + 0.5) / 3);
-      const dotCount = 14 + ring * 8;
+    // Rings of retro arcade dots based on wave level
+    // Wave 1: 2 rings (32 dots) - fast, accessible arcade wave
+    // Wave 2: 3 rings (60 dots)
+    // Wave 3+: 3-4 rings with bonus center constellation
+    const ringCount = Math.min(4, 2 + ((wave - 1) % 3));
+    for (let ring = 0; ring < ringCount; ring++) {
+      const ringRadius = rInner + (rOuter - rInner) * ((ring + 0.5) / ringCount);
+      const dotCount = 12 + ring * 8;
       for (let i = 0; i < dotCount; i++) {
         const a = (i / dotCount) * Math.PI * 2;
         this.dots.push({
@@ -455,6 +555,10 @@ export class BumperQuestEngine {
         });
       }
     }
+
+    this.dotsTotal = this.dots.length;
+    this.dotsRemaining = this.dots.length;
+    this.onDotsUpdate?.(this.dotsRemaining, this.dotsTotal);
   }
 
   // --- MANUAL FLIPPER CONTROLS ---
@@ -463,6 +567,9 @@ export class BumperQuestEngine {
     if (f) {
       f.isFlipping = true;
       f.activeGlow = 1.0;
+      if (id === 'BL' || id === 'BR') {
+        this.bottomFlairGlow = 1.0;
+      }
       soundSynth.playFlipperSnap();
     }
   }
@@ -516,12 +623,28 @@ export class BumperQuestEngine {
 
     // 5. Update Flippers (Auto AI or manual)
     this.updateFlippers(dt);
+    this.bottomFlairGlow = Math.max(0, this.bottomFlairGlow - dt * 2.2);
 
-    // 6. Update Dots respawn
-    const now = performance.now();
-    for (const dot of this.dots) {
-      if (dot.collected && now > dot.respawnTime) {
-        dot.collected = false;
+    // 5.5. Update Spiked Pinwheels rotation & glow
+    if (this.settings.spikedPinwheels !== false) {
+      for (const p of this.pinwheels) {
+        p.angle += p.rotationSpeed * (1 + p.hitGlow * 1.5);
+        p.hitGlow = Math.max(0, p.hitGlow - dt * 2.2);
+      }
+    }
+
+    // 6. Update Game State Countdown (Wave Cleared or Game Over Self-Playing Reset)
+    if (this.gameState === 'wave_cleared') {
+      this.stateCountdown -= dt;
+      this.onStateChange?.(this.gameState, this.stateCountdown, this.wave);
+      if (this.stateCountdown <= 0) {
+        this.advanceNextWave();
+      }
+    } else if (this.gameState === 'game_over') {
+      this.stateCountdown -= dt;
+      this.onStateChange?.(this.gameState, this.stateCountdown, this.wave);
+      if (this.stateCountdown <= 0) {
+        this.autoRestartGame();
       }
     }
 
@@ -676,6 +799,9 @@ export class BumperQuestEngine {
         if (shouldFlip && !f.isFlipping) {
           f.isFlipping = true;
           f.activeGlow = 1.0;
+          if (f.id === 'BL' || f.id === 'BR') {
+            this.bottomFlairGlow = 1.0;
+          }
           soundSynth.playFlipperSnap();
         } else if (!shouldFlip && f.isFlipping) {
           f.isFlipping = false;
@@ -700,7 +826,9 @@ export class BumperQuestEngine {
     const cy = this.turntable.y;
     const rTurntable = this.turntable.radius;
 
-    for (const ball of this.balls) {
+    for (let bIdx = this.balls.length - 1; bIdx >= 0; bIdx--) {
+      const ball = this.balls[bIdx];
+
       // Apply gravity
       ball.vx += totalGx;
       ball.vy += totalGy;
@@ -731,26 +859,115 @@ export class BumperQuestEngine {
         ball.trail.pop();
       }
 
-      // 1. Playfield Outer Boundary Walls
+      // 1. Playfield Outer Boundary Walls, Top/Bottom Gutter Drains & Pac-Man Side Warp Tunnels
       const pad = 18;
+      const drainLeft = this.width * 0.43;
+      const drainRight = this.width * 0.57;
+      const tunnelTop = this.height * 0.43;
+      const tunnelBottom = this.height * 0.57;
+
+      // Left Wall & Pac-Man Left Warp Tunnel
       if (ball.x - ball.radius < pad) {
-        ball.x = pad + ball.radius;
-        ball.vx = -ball.vx * this.restitution;
-        this.addSparks(ball.x, ball.y, ball.color, 4);
+        if (ball.y >= tunnelTop && ball.y <= tunnelBottom) {
+          // Inside Pac-Man Left Tunnel -> Teleport to Right Tunnel Exit!
+          ball.x = this.width - pad - ball.radius - 2;
+          this.addSparks(pad, ball.y, '#00f3ff', 12);
+          this.addSparks(ball.x, ball.y, '#ff00aa', 12);
+          soundSynth.playPacManWarpSound();
+          this.notices.push({
+            text: 'PAC-WARP >>',
+            x: ball.x - 35,
+            y: ball.y,
+            vy: -0.3,
+            life: 0,
+            maxLife: 45,
+            color: '#00f3ff',
+          });
+        } else {
+          // Solid left wall bounce
+          ball.x = pad + ball.radius;
+          ball.vx = -ball.vx * this.restitution;
+          this.addSparks(ball.x, ball.y, ball.color, 4);
+        }
       } else if (ball.x + ball.radius > this.width - pad) {
-        ball.x = this.width - pad - ball.radius;
-        ball.vx = -ball.vx * this.restitution;
-        this.addSparks(ball.x, ball.y, ball.color, 4);
+        if (ball.y >= tunnelTop && ball.y <= tunnelBottom) {
+          // Inside Pac-Man Right Tunnel -> Teleport to Left Tunnel Exit!
+          ball.x = pad + ball.radius + 2;
+          this.addSparks(this.width - pad, ball.y, '#ff00aa', 12);
+          this.addSparks(ball.x, ball.y, '#00f3ff', 12);
+          soundSynth.playPacManWarpSound();
+          this.notices.push({
+            text: '<< PAC-WARP',
+            x: ball.x + 35,
+            y: ball.y,
+            vy: -0.3,
+            life: 0,
+            maxLife: 45,
+            color: '#ff00aa',
+          });
+        } else {
+          // Solid right wall bounce
+          ball.x = this.width - pad - ball.radius;
+          ball.vx = -ball.vx * this.restitution;
+          this.addSparks(ball.x, ball.y, ball.color, 4);
+        }
       }
 
-      if (ball.y - ball.radius < pad) {
-        ball.y = pad + ball.radius;
-        ball.vy = -ball.vy * this.restitution;
-        this.addSparks(ball.x, ball.y, ball.color, 4);
-      } else if (ball.y + ball.radius > this.height - pad) {
-        ball.y = this.height - pad - ball.radius;
-        ball.vy = -ball.vy * this.restitution;
-        this.addSparks(ball.x, ball.y, ball.color, 4);
+      // Top Wall & Top Gutter Drain
+      if (ball.y - ball.radius < 10) {
+        if (ball.x >= drainLeft && ball.x <= drainRight) {
+          // Ball drains through the Top Gutter!
+          this.addSparks(ball.x, 0, '#ff0055', 18);
+          this.shockwaves.push({
+            x: ball.x,
+            y: 8,
+            radius: 8,
+            maxRadius: 80,
+            color: '#ff0055',
+            alpha: 1.0,
+          });
+          soundSynth.playBallDrainSound();
+
+          this.balls.splice(bIdx, 1);
+
+          if (this.balls.length === 0) {
+            this.triggerGameOver();
+          }
+          continue;
+        } else {
+          // Solid top wall bounce
+          ball.y = pad + ball.radius;
+          ball.vy = -ball.vy * this.restitution;
+          this.addSparks(ball.x, ball.y, ball.color, 4);
+        }
+      } else if (ball.y + ball.radius > this.height - 10) {
+        // Bottom Gutter Drain Check (Narrowed by 50%!)
+        if (ball.x >= drainLeft && ball.x <= drainRight) {
+          // Ball drains into the bottom abyss!
+          this.addSparks(ball.x, this.height, '#ff0055', 18);
+          this.shockwaves.push({
+            x: ball.x,
+            y: this.height - 8,
+            radius: 8,
+            maxRadius: 80,
+            color: '#ff0055',
+            alpha: 1.0,
+          });
+          soundSynth.playBallDrainSound();
+
+          this.balls.splice(bIdx, 1);
+
+          // If all balls are lost -> GAME OVER (triggers self-playing reset)
+          if (this.balls.length === 0) {
+            this.triggerGameOver();
+          }
+          continue;
+        } else {
+          // Solid bounce off bottom rebound walls
+          ball.y = this.height - 10 - ball.radius;
+          ball.vy = -ball.vy * this.restitution;
+          this.addSparks(ball.x, ball.y, ball.color, 4);
+        }
       }
 
       // 2. Central Turntable Bumper Collision (The Vinyl Scratch Bumper!)
@@ -799,6 +1016,20 @@ export class BumperQuestEngine {
         });
 
         this.addSparks(ball.x, ball.y, '#00f3ff', 12);
+
+        // Turntable scratch impact occasionally seeds rhythmic vinyl dots!
+        if (Math.random() < 0.28) {
+          this.seedDots(3, 'vinyl', cx, cy);
+          this.notices.push({
+            text: 'VINYL GROOVE +3 DOTS',
+            x: cx,
+            y: cy - rTurntable - 15,
+            vy: -0.4,
+            life: 0,
+            maxLife: 60,
+            color: '#00f3ff',
+          });
+        }
       }
 
       // 3. Tempest Spider Guardian Collision
@@ -820,6 +1051,18 @@ export class BumperQuestEngine {
         this.totalBumps++;
         this.score += 350 * this.currentMultiplier;
         this.addSparks(ball.x, ball.y, '#ff0055', 14);
+
+        // Spider Guardian weaves glowing silk dots in its wake!
+        this.seedDots(3, 'spider', spiderX, spiderY);
+        this.notices.push({
+          text: 'SPIDER WEAVE +3 DOTS',
+          x: spiderX,
+          y: spiderY - 20,
+          vy: -0.4,
+          life: 0,
+          maxLife: 60,
+          color: '#ff00aa',
+        });
       }
 
       // 4. Moving Geometric Hazards Collisions
@@ -843,12 +1086,22 @@ export class BumperQuestEngine {
           h.multiplier = Math.min(64, h.multiplier * 2);
           this.currentMultiplier = Math.max(this.currentMultiplier, h.multiplier);
           h.hitGlow = 1.0;
+          h.isLit = true;
+
+          // Multiplier Matrix tracking
+          this.litMultiplierIds.add(h.id);
+          ball.visitedMultipliers.add(h.id);
 
           soundSynth.playBumperChime(h.multiplier);
           soundSynth.playMultiplierUpgrade(h.multiplier);
           this.totalBumps++;
           this.score += 250 * h.multiplier;
           this.addSparks(ball.x, ball.y, h.color, 10);
+
+          // Check if ALL 4 Geometric Multipliers are activated!
+          if (this.litMultiplierIds.size >= 4) {
+            this.triggerMultiplierMatrixJackpot(ball.x, ball.y);
+          }
         }
       }
 
@@ -873,6 +1126,66 @@ export class BumperQuestEngine {
         }
       }
 
+      // 5.5. Spiked Corner Pinwheels Ricochet Kickers (under bottom flippers)
+      if (this.settings.spikedPinwheels !== false) {
+        for (const p of this.pinwheels) {
+          const pdx = ball.x - p.x;
+          const pdy = ball.y - p.y;
+          const pDist = Math.hypot(pdx, pdy);
+          const effectiveRadius = p.radius + p.spikeLength;
+
+          if (pDist < effectiveRadius + ball.radius) {
+            const pnx = pdx / (pDist || 1);
+            const pny = pdy / (pDist || 1);
+
+            const isLeft = p.id === 'left';
+            // Flings ball radically inward and upward back toward the flippers/playfield!
+            const targetAngle = isLeft ? -0.82 : -Math.PI + 0.82;
+            const radicalSpeed = Math.max(14.5, Math.hypot(ball.vx, ball.vy) * 1.55);
+
+            // Add tangential rotational whip from high-rpm spin
+            const spinSign = p.rotationSpeed > 0 ? 1 : -1;
+            const tx = -pny * spinSign;
+            const ty = pnx * spinSign;
+
+            ball.vx = Math.cos(targetAngle) * radicalSpeed + tx * 3.5;
+            ball.vy = Math.sin(targetAngle) * radicalSpeed + ty * 3.5;
+
+            // Separate cleanly to prevent getting trapped
+            ball.x = p.x + pnx * (effectiveRadius + ball.radius + 4);
+            ball.y = p.y + pny * (effectiveRadius + ball.radius + 4);
+
+            p.hitGlow = 1.0;
+            this.bottomFlairGlow = 1.0;
+
+            soundSynth.playPinwheelRicochet();
+            this.totalBumps++;
+            this.score += 200 * this.currentMultiplier;
+
+            this.addSparks(ball.x, ball.y, '#ffea00', 16);
+            this.addSparks(ball.x, ball.y, p.color, 12);
+            this.shockwaves.push({
+              x: p.x,
+              y: p.y,
+              radius: p.radius,
+              maxRadius: 70,
+              color: p.color,
+              alpha: 1.0,
+            });
+
+            this.notices.push({
+              text: '★ RADICAL RICOCHET! ★',
+              x: p.x + (isLeft ? 38 : -38),
+              y: p.y - 28,
+              vy: -0.4,
+              life: 0,
+              maxLife: 55,
+              color: '#ffea00',
+            });
+          }
+        }
+      }
+
       // 6. Dot Grid Collision
       for (const dot of this.dots) {
         if (dot.collected) continue;
@@ -880,11 +1193,18 @@ export class BumperQuestEngine {
         const ddy = ball.y - dot.y;
         if (Math.hypot(ddx, ddy) < dot.radius + ball.radius) {
           dot.collected = true;
-          dot.respawnTime = performance.now() + 8000; // respawn in 8s
+          this.dotsRemaining = Math.max(0, this.dotsRemaining - 1);
           this.dotEatCounter++;
           soundSynth.playDotBlip(this.dotEatCounter);
           this.score += 50 * this.currentMultiplier;
           this.addSparks(dot.x, dot.y, '#00ff66', 3);
+          this.onDotsUpdate?.(this.dotsRemaining, this.dotsTotal);
+
+          // WIN CONDITION: When all of the dots are collected!
+          if (this.dotsRemaining <= 0 && this.gameState === 'playing') {
+            this.triggerWaveClear();
+            break;
+          }
         }
       }
 
@@ -907,13 +1227,299 @@ export class BumperQuestEngine {
           ball.vy = normY * flipPower + (Math.random() - 0.5) * 2;
 
           f.activeGlow = 1.0;
+          if (f.id === 'BL' || f.id === 'BR') {
+            this.bottomFlairGlow = 1.0;
+          }
           soundSynth.playFlipperSnap();
           this.totalBumps++;
           this.score += 200 * this.currentMultiplier;
           this.addSparks(ball.x, ball.y, '#ffffff', 8);
+          this.onGameActivity?.();
+
+          // Quad-Flipper tracking: add to ball's visited flippers set!
+          ball.visitedFlippers.add(f.id);
+
+          // If this ball has hit all 4 corner flippers, award bonus ball!
+          if (ball.visitedFlippers.size >= 4) {
+            ball.visitedFlippers.clear();
+            if (this.balls.length < 8) {
+              this.spawnBall();
+            }
+            this.score += 2500 * this.currentMultiplier;
+            soundSynth.playQuadCycleBonusSound();
+            this.triggerQuadBonusCelebration(ball.x, ball.y);
+            this.onQuadBonus?.(this.balls.length);
+          }
         }
       }
     }
+  }
+
+  public triggerQuadBonusCelebration(x: number, y: number) {
+    this.bottomFlairGlow = 1.0;
+    this.shockwaves.push({
+      x,
+      y,
+      radius: 12,
+      maxRadius: 180,
+      color: '#00ff66',
+      alpha: 1.0,
+    });
+    this.shockwaves.push({
+      x: this.width / 2,
+      y: this.height / 2,
+      radius: this.turntable.radius,
+      maxRadius: this.turntable.radius * 2,
+      color: '#ff0055',
+      alpha: 0.9,
+    });
+    this.addSparks(x, y, '#00ff66', 20);
+    this.addSparks(x, y, '#00f3ff', 16);
+
+    this.notices.push({
+      text: 'QUAD-FLIPPER CYCLE! +1 BALL',
+      x: this.width / 2,
+      y: this.height * 0.42,
+      vy: -0.65,
+      life: 0,
+      maxLife: 100,
+      color: '#00ff66',
+    });
+  }
+
+  /**
+   * Dynamically seeds fresh dots onto the table (Spider web weave, turntable scratch groove, or matrix supernova)
+   */
+  public seedDots(count: number, source: 'spider' | 'vinyl' | 'matrix', originX?: number, originY?: number) {
+    if (this.gameState !== 'playing') return;
+    const cx = originX ?? this.width / 2;
+    const cy = originY ?? this.height / 2;
+    const rOuter = Math.min(this.width, this.height) * 0.38;
+    const rInner = this.turntable.radius + 30;
+
+    let added = 0;
+    for (let i = 0; i < count; i++) {
+      let dx: number;
+      let dy: number;
+      let dotColor = '#00ff66';
+
+      if (source === 'spider') {
+        const a = this.spider.angle + (Math.random() - 0.5) * 0.8;
+        const dist = this.spider.orbitRadius + (Math.random() - 0.5) * 30;
+        dx = this.turntable.x + Math.cos(a) * dist;
+        dy = this.turntable.y + Math.sin(a) * dist;
+        dotColor = '#ff00aa'; // Magenta spider silk dot
+      } else if (source === 'vinyl') {
+        const a = Math.random() * Math.PI * 2;
+        const dist = this.turntable.radius + 18 + Math.random() * 32;
+        dx = cx + Math.cos(a) * dist;
+        dy = cy + Math.sin(a) * dist;
+        dotColor = '#00f3ff'; // Cyan vinyl groove dot
+      } else {
+        const a = (i / count) * Math.PI * 2;
+        const dist = rInner + (rOuter - rInner) * (0.25 + Math.random() * 0.7);
+        dx = cx + Math.cos(a) * dist;
+        dy = cy + Math.sin(a) * dist;
+        dotColor = '#ffea00'; // Golden matrix supernova dot
+      }
+
+      dx = Math.max(28, Math.min(this.width - 28, dx));
+      dy = Math.max(28, Math.min(this.height - 40, dy));
+
+      this.dots.push({
+        x: dx,
+        y: dy,
+        radius: source === 'matrix' ? 4.5 : 3.5,
+        collected: false,
+        respawnTime: 0,
+        color: dotColor,
+        isBonus: true,
+      });
+      added++;
+    }
+
+    this.dotsTotal += added;
+    this.dotsRemaining += added;
+    soundSynth.playDotSpawnChime();
+    this.onDotsUpdate?.(this.dotsRemaining, this.dotsTotal);
+  }
+
+  /**
+   * Supernova Multiball Surge: Triggered when ALL 4 X-Multiplier hazards are hit!
+   */
+  public triggerMultiplierMatrixJackpot(x: number, y: number) {
+    this.litMultiplierIds.clear();
+    for (const h of this.hazards) {
+      h.isLit = false;
+      h.hitGlow = 1.0;
+    }
+
+    // Spawn +2 extra balls (max 8)
+    const currentBalls = this.balls.length;
+    const spawnCount = Math.min(2, Math.max(1, 8 - currentBalls));
+    for (let i = 0; i < spawnCount; i++) {
+      this.spawnBall(this.width / 2 + (i === 0 ? -45 : 45), this.height * 0.28);
+    }
+
+    // Seed +8 golden stardust dots onto the board
+    this.seedDots(8, 'matrix');
+
+    const bonus = 5000 * this.currentMultiplier;
+    this.score += bonus;
+
+    soundSynth.playMultiballMatrixSurge();
+
+    // Sacred geometry shockwave
+    this.shockwaves.push({
+      x: this.width / 2,
+      y: this.height / 2,
+      radius: 20,
+      maxRadius: 240,
+      color: '#ffea00',
+      alpha: 1.0,
+    });
+    this.addSparks(x, y, '#ffea00', 25);
+    this.addSparks(this.width / 2, this.height / 2, '#00f3ff', 20);
+
+    this.notices.push({
+      text: `★ ALL X-MULTIPLIERS HIT! +${spawnCount} BALLS +8 DOTS ★`,
+      x: this.width / 2,
+      y: this.height * 0.44,
+      vy: -0.5,
+      life: 0,
+      maxLife: 130,
+      color: '#ffea00',
+    });
+
+    this.onMultiplierMatrixBonus?.(this.balls.length);
+  }
+
+  public triggerWaveClear() {
+    if (this.gameState !== 'playing') return;
+    this.gameState = 'wave_cleared';
+    this.stateCountdown = 2.8; // 2.8 seconds celebration before next wave
+
+    const bonus = 10000 * this.wave * this.currentMultiplier;
+    this.score += bonus;
+
+    soundSynth.playWaveClearFanfare();
+
+    this.turntable.scratchImpulse = 0.55;
+    this.turntable.scratchGlow = 1.0;
+    this.bottomFlairGlow = 1.0;
+
+    for (let i = 0; i < 6; i++) {
+      const fx = this.width * (0.2 + Math.random() * 0.6);
+      const fy = this.height * (0.2 + Math.random() * 0.5);
+      const colors = ['#00ff66', '#00f3ff', '#ff0055', '#ffaa00', '#ffffff'];
+      const c = colors[i % colors.length];
+      this.addSparks(fx, fy, c, 24);
+      this.shockwaves.push({
+        x: fx,
+        y: fy,
+        radius: 12,
+        maxRadius: 180 + i * 20,
+        color: c,
+        alpha: 1.0,
+      });
+    }
+
+    this.notices.push({
+      text: `★ WAVE ${this.wave} CLEARED! +${bonus.toLocaleString()} PTS ★`,
+      x: this.width / 2,
+      y: this.height * 0.38,
+      vy: -0.4,
+      life: 0,
+      maxLife: 150,
+      color: '#00ff66',
+    });
+
+    this.onWaveClear?.(this.wave, this.score);
+    this.onStateChange?.(this.gameState, this.stateCountdown, this.wave);
+  }
+
+  public advanceNextWave() {
+    this.wave++;
+    this.setupDotGrid(this.wave);
+    this.gameState = 'playing';
+    this.stateCountdown = 0;
+
+    // Ensure at least 1 ball is on the table
+    if (this.balls.length === 0) {
+      this.spawnBall();
+    }
+
+    // Slightly increase turntable speed and spider challenge
+    this.turntable.targetAngularVelocity *= 1.04;
+    this.spider.speed = Math.min(0.14, 0.08 + this.wave * 0.008);
+
+    this.notices.push({
+      text: `WAVE ${this.wave} START!`,
+      x: this.width / 2,
+      y: this.height * 0.38,
+      vy: -0.5,
+      life: 0,
+      maxLife: 90,
+      color: '#00f3ff',
+    });
+
+    this.onStateChange?.(this.gameState, this.stateCountdown, this.wave);
+  }
+
+  public triggerGameOver() {
+    if (this.gameState !== 'playing') return;
+    this.gameState = 'game_over';
+    this.stateCountdown = 3.2; // 3.2 seconds countdown to self-playing reset
+
+    soundSynth.playGameOverSound();
+
+    this.shockwaves.push({
+      x: this.width / 2,
+      y: this.height - 20,
+      radius: 10,
+      maxRadius: 220,
+      color: '#ff0055',
+      alpha: 1.0,
+    });
+
+    this.notices.push({
+      text: 'ALL BALLS DRAINED // ROUND OVER',
+      x: this.width / 2,
+      y: this.height * 0.42,
+      vy: -0.2,
+      life: 0,
+      maxLife: 160,
+      color: '#ff0055',
+    });
+
+    this.onGameOver?.(this.score);
+    this.onStateChange?.(this.gameState, this.stateCountdown, this.wave);
+  }
+
+  public autoRestartGame() {
+    this.score = 0;
+    this.totalBumps = 0;
+    this.totalScratches = 0;
+    this.currentMultiplier = 1;
+    this.wave = 1;
+    this.setupDotGrid(1);
+    this.balls = [];
+    this.spawnBall();
+    this.gameState = 'playing';
+    this.stateCountdown = 0;
+
+    this.notices.push({
+      text: 'AUTO-RESTART // WAVE 1',
+      x: this.width / 2,
+      y: this.height * 0.38,
+      vy: -0.5,
+      life: 0,
+      maxLife: 90,
+      color: '#00f3ff',
+    });
+
+    soundSynth.startIntroTheme();
+    this.onStateChange?.(this.gameState, this.stateCountdown, this.wave);
   }
 
   private distToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number) {
@@ -970,6 +1576,15 @@ export class BumperQuestEngine {
         this.shockwaves.splice(i, 1);
       }
     }
+
+    for (let i = this.notices.length - 1; i >= 0; i--) {
+      const n = this.notices[i];
+      n.y += n.vy;
+      n.life++;
+      if (n.life >= n.maxLife) {
+        this.notices.splice(i, 1);
+      }
+    }
   }
 
   // --- RENDERING ---
@@ -1006,14 +1621,26 @@ export class BumperQuestEngine {
     // 6. Draw Geometric Hazards (Ghosts)
     this.drawHazards(ctx);
 
-    // 7. Draw Quad-Flippers
+    // 7. Draw Corner Rails & Bottom Apron Flairs
+    this.drawCornerRailsAndFlairs(ctx);
+
+    // 7.5. Draw Spiked Corner Pinwheels (under bottom flippers)
+    this.drawSpikedPinwheels(ctx);
+
+    // 8. Draw Quad-Flippers
     this.drawFlippers(ctx);
 
-    // 8. Draw Ball Trails (Timing Dots) & Balls
+    // 9. Draw Ball Trails (Timing Dots) & Balls
     this.drawBalls(ctx);
 
-    // 9. Draw Shockwaves & Sparks
+    // 10. Draw Shockwaves & Sparks
     this.drawParticles(ctx);
+
+    // 11. Draw Floating Celebrations
+    this.drawNotices(ctx);
+
+    // 12. Draw Game State Overlay (Wave Clear or Game Over Self-Playing Reset)
+    this.drawGameStateOverlay(ctx);
 
     ctx.restore();
   }
@@ -1128,13 +1755,14 @@ export class BumperQuestEngine {
   private drawDotGrid(ctx: CanvasRenderingContext2D) {
     for (const dot of this.dots) {
       if (dot.collected) continue;
-      ctx.fillStyle = '#00ff66';
+      const dotColor = dot.color || '#00ff66';
+      ctx.fillStyle = dotColor;
       ctx.beginPath();
       ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
       ctx.fill();
 
       // Soft glow
-      ctx.fillStyle = 'rgba(0, 255, 102, 0.25)';
+      ctx.fillStyle = dot.isBonus ? `${dotColor}55` : 'rgba(0, 255, 102, 0.25)';
       ctx.beginPath();
       ctx.arc(dot.x, dot.y, dot.radius * 2, 0, Math.PI * 2);
       ctx.fill();
@@ -1343,28 +1971,63 @@ export class BumperQuestEngine {
   }
 
   private drawHazards(ctx: CanvasRenderingContext2D) {
+    const time = performance.now() * 0.001;
+
+    // Draw active constellation laser threads connecting all lit multipliers!
+    if (this.litMultiplierIds.size >= 2) {
+      const litHazards = this.hazards.filter(h => this.litMultiplierIds.has(h.id));
+      ctx.save();
+      ctx.strokeStyle = `rgba(255, 234, 0, ${0.35 + 0.25 * Math.sin(time * 6)})`;
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#ffea00';
+      ctx.shadowBlur = 10;
+      ctx.setLineDash([6, 4]);
+
+      ctx.beginPath();
+      for (let i = 0; i < litHazards.length; i++) {
+        for (let j = i + 1; j < litHazards.length; j++) {
+          ctx.moveTo(litHazards[i].x, litHazards[i].y);
+          ctx.lineTo(litHazards[j].x, litHazards[j].y);
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
     for (const h of this.hazards) {
       ctx.save();
       ctx.translate(h.x, h.y);
       ctx.rotate(h.angle);
 
-      const color = h.hitGlow > 0 ? '#ffffff' : h.color;
+      const isLit = h.isLit || this.litMultiplierIds.has(h.id);
+      const color = h.hitGlow > 0 ? '#ffffff' : isLit ? '#ffea00' : h.color;
       ctx.strokeStyle = color;
-      ctx.lineWidth = 2.5;
-      ctx.shadowColor = h.color;
-      ctx.shadowBlur = 12 + h.hitGlow * 12;
+      ctx.lineWidth = isLit ? 3.5 : 2.5;
+      ctx.shadowColor = isLit ? '#ffea00' : h.color;
+      ctx.shadowBlur = 12 + h.hitGlow * 12 + (isLit ? 10 : 0);
+
+      // Rotating neon halo when lit in the matrix
+      if (isLit) {
+        ctx.strokeStyle = 'rgba(255, 234, 0, 0.4)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, (h.radius || 24) + 8, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+      }
 
       if (h.type === 'circle') {
         ctx.beginPath();
         ctx.arc(0, 0, h.radius, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(0, 243, 255, 0.2)';
+        ctx.fillStyle = isLit ? 'rgba(255, 234, 0, 0.35)' : 'rgba(0, 243, 255, 0.2)';
         ctx.fill();
         ctx.stroke();
       } else if (h.type === 'square') {
         const s = h.radius * 1.5;
         ctx.beginPath();
         ctx.rect(-s / 2, -s / 2, s, s);
-        ctx.fillStyle = 'rgba(0, 255, 102, 0.2)';
+        ctx.fillStyle = isLit ? 'rgba(255, 234, 0, 0.35)' : 'rgba(0, 255, 102, 0.2)';
         ctx.fill();
         ctx.stroke();
       } else if (h.type === 'triangle') {
@@ -1374,7 +2037,7 @@ export class BumperQuestEngine {
         ctx.lineTo(r * 0.9, r * 0.7);
         ctx.lineTo(-r * 0.9, r * 0.7);
         ctx.closePath();
-        ctx.fillStyle = 'rgba(255, 0, 85, 0.2)';
+        ctx.fillStyle = isLit ? 'rgba(255, 234, 0, 0.35)' : 'rgba(255, 0, 85, 0.2)';
         ctx.fill();
         ctx.stroke();
       } else if (h.type === 'rectangle') {
@@ -1382,14 +2045,14 @@ export class BumperQuestEngine {
         const ht = h.height || 18;
         ctx.beginPath();
         ctx.roundRect(-w / 2, -ht / 2, w, ht, 4);
-        ctx.fillStyle = 'rgba(255, 170, 0, 0.2)';
+        ctx.fillStyle = isLit ? 'rgba(255, 234, 0, 0.35)' : 'rgba(255, 170, 0, 0.2)';
         ctx.fill();
         ctx.stroke();
       }
 
       // Multiplier digit text
-      ctx.shadowBlur = 0;
-      ctx.fillStyle = '#ffffff';
+      ctx.shadowBlur = isLit ? 10 : 0;
+      ctx.fillStyle = isLit ? '#ffea00' : '#ffffff';
       ctx.font = '700 12px "Press Start 2P", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -1479,6 +2142,42 @@ export class BumperQuestEngine {
       ctx.lineWidth = 2.5;
       ctx.stroke();
 
+      // 4 mini quad-flipper pips orbiting the ball: TL, TR, BL, BR
+      const pipDist = ball.radius + 4.5;
+      const flipperAngles: { id: string; angle: number }[] = [
+        { id: 'TL', angle: -Math.PI * 0.75 },
+        { id: 'TR', angle: -Math.PI * 0.25 },
+        { id: 'BL', angle: Math.PI * 0.75 },
+        { id: 'BR', angle: Math.PI * 0.25 },
+      ];
+
+      for (const fPos of flipperAngles) {
+        const px = Math.cos(fPos.angle) * pipDist;
+        const py = Math.sin(fPos.angle) * pipDist;
+        const isHit = ball.visitedFlippers?.has(fPos.id);
+
+        ctx.fillStyle = isHit ? '#00ff66' : 'rgba(255, 255, 255, 0.25)';
+        ctx.beginPath();
+        ctx.arc(px, py, isHit ? 2.5 : 1.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+  }
+
+  private drawNotices(ctx: CanvasRenderingContext2D) {
+    for (const n of this.notices) {
+      const alpha = Math.max(0, 1 - (n.life / n.maxLife));
+      ctx.save();
+      ctx.globalAlpha = alpha;
+      ctx.font = '700 13px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = n.color;
+      ctx.shadowColor = n.color;
+      ctx.shadowBlur = 12;
+      ctx.fillText(n.text, n.x, n.y);
       ctx.restore();
     }
   }
@@ -1507,5 +2206,413 @@ export class BumperQuestEngine {
       ctx.fill();
       ctx.restore();
     }
+  }
+
+  private drawCornerRailsAndFlairs(ctx: CanvasRenderingContext2D) {
+    const w = this.width;
+    const h = this.height;
+    const time = performance.now() * 0.001;
+    const glow = this.bottomFlairGlow;
+
+    ctx.save();
+
+    // 1. Bottom Arcade Apron Radiant Flare Fans
+    const gradient = ctx.createLinearGradient(0, h, 0, h - 110);
+    gradient.addColorStop(0, glow > 0 ? 'rgba(255, 0, 85, 0.45)' : 'rgba(0, 243, 255, 0.15)');
+    gradient.addColorStop(0.5, glow > 0 ? 'rgba(255, 170, 0, 0.2)' : 'rgba(168, 85, 247, 0.08)');
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, h - 110, w, 110);
+
+    // Radiant Vector Laser Fan Rays
+    const rayCount = 14;
+    for (let i = 0; i <= rayCount; i++) {
+      const rx = (i / rayCount) * w;
+      const alpha = (0.1 + glow * 0.35) * Math.sin((i / rayCount) * Math.PI);
+      ctx.strokeStyle = i % 2 === 0 ? `rgba(0, 243, 255, ${alpha})` : `rgba(255, 0, 85, ${alpha})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(rx, h);
+      ctx.lineTo(w / 2 + (rx - w / 2) * 0.35, h - 85);
+      ctx.stroke();
+    }
+
+    // 2. Left & Right Bottom Kinetic Vector Rebound Arches (leaving center open for narrowed Drain Gutter)
+    const drainL = w * 0.43;
+    const drainR = w * 0.57;
+    const tunnelTop = h * 0.43;
+    const tunnelBottom = h * 0.57;
+
+    // Outer Perimeter Neon Boundaries (leaving gaps for Tunnels and Drains)
+    ctx.strokeStyle = 'rgba(0, 243, 255, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#00f3ff';
+    ctx.shadowBlur = 6;
+
+    // Left Wall segments
+    ctx.beginPath();
+    ctx.moveTo(18, 18);
+    ctx.lineTo(18, tunnelTop);
+    ctx.moveTo(18, tunnelBottom);
+    ctx.lineTo(18, h - 18);
+    ctx.stroke();
+
+    // Right Wall segments
+    ctx.beginPath();
+    ctx.moveTo(w - 18, 18);
+    ctx.lineTo(w - 18, tunnelTop);
+    ctx.moveTo(w - 18, tunnelBottom);
+    ctx.lineTo(w - 18, h - 18);
+    ctx.stroke();
+
+    // Top Wall segments
+    ctx.beginPath();
+    ctx.moveTo(18, 18);
+    ctx.lineTo(drainL, 18);
+    ctx.moveTo(drainR, 18);
+    ctx.lineTo(w - 18, 18);
+    ctx.stroke();
+
+    // 3. Top Gutter Drain Aperture [drainL to drainR]
+    ctx.save();
+    const topDrainGrad = ctx.createLinearGradient(0, 28, 0, 0);
+    topDrainGrad.addColorStop(0, 'rgba(255, 0, 85, 0)');
+    topDrainGrad.addColorStop(1, 'rgba(255, 0, 85, 0.45)');
+    ctx.fillStyle = topDrainGrad;
+    ctx.fillRect(drainL, 0, drainR - drainL, 28);
+
+    ctx.strokeStyle = 'rgba(255, 0, 85, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#ff0055';
+    ctx.shadowBlur = 10;
+    ctx.strokeRect(drainL, 0, drainR - drainL, 8);
+
+    ctx.font = '700 8px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(255, 0, 85, ${0.4 + 0.5 * Math.sin(time * 5)})`;
+    ctx.shadowBlur = 6;
+    ctx.fillText('▲ DRAIN ▲', w / 2, 18);
+    ctx.restore();
+
+    // 4. Bottom Kinetic Vector Rebound Arches
+    ctx.strokeStyle = glow > 0 ? '#ffffff' : '#ff0055';
+    ctx.lineWidth = 2.5 + glow * 2.5;
+    ctx.shadowColor = glow > 0 ? '#ff0055' : '#00f3ff';
+    ctx.shadowBlur = 10 + glow * 18;
+
+    // Left Rebound Wall
+    ctx.beginPath();
+    ctx.moveTo(w * 0.16, h - 14);
+    ctx.quadraticCurveTo(w * 0.30, h - 38 - glow * 12, drainL, h - 14);
+    ctx.stroke();
+
+    // Right Rebound Wall
+    ctx.beginPath();
+    ctx.moveTo(drainR, h - 14);
+    ctx.quadraticCurveTo(w * 0.70, h - 38 - glow * 12, w * 0.84, h - 14);
+    ctx.stroke();
+
+    // 5. Center Bottom Gutter Drain Aperture [drainL to drainR] (50% narrower!)
+    ctx.save();
+    const drainGrad = ctx.createLinearGradient(0, h - 28, 0, h);
+    drainGrad.addColorStop(0, 'rgba(255, 0, 85, 0)');
+    drainGrad.addColorStop(1, 'rgba(255, 0, 85, 0.45)');
+    ctx.fillStyle = drainGrad;
+    ctx.fillRect(drainL, h - 28, drainR - drainL, 28);
+
+    // Hazard neon border across drain mouth
+    ctx.strokeStyle = 'rgba(255, 0, 85, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#ff0055';
+    ctx.shadowBlur = 10;
+    ctx.strokeRect(drainL, h - 8, drainR - drainL, 8);
+
+    // Animated downward hazard chevrons: ▼ DRAIN ▼
+    ctx.font = '700 8px "Press Start 2P", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(255, 0, 85, ${0.4 + 0.5 * Math.sin(time * 5)})`;
+    ctx.shadowBlur = 6;
+    ctx.fillText('▼ DRAIN ▼', w / 2, h - 14);
+    ctx.restore();
+
+    // 6. Pac-Man Side Warp Tunnels
+    // Left Portal
+    ctx.save();
+    const lGrad = ctx.createLinearGradient(0, 0, 24, 0);
+    lGrad.addColorStop(0, 'rgba(0, 243, 255, 0.45)');
+    lGrad.addColorStop(1, 'rgba(0, 243, 255, 0)');
+    ctx.fillStyle = lGrad;
+    ctx.fillRect(0, tunnelTop, 24, tunnelBottom - tunnelTop);
+
+    ctx.strokeStyle = '#00f3ff';
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = '#00f3ff';
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.moveTo(18, tunnelTop);
+    ctx.lineTo(0, tunnelTop + 8);
+    ctx.moveTo(18, tunnelBottom);
+    ctx.lineTo(0, tunnelBottom - 8);
+    ctx.stroke();
+
+    ctx.font = '700 8px "Press Start 2P", monospace';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = `rgba(0, 243, 255, ${0.5 + 0.4 * Math.sin(time * 6)})`;
+    ctx.fillText('◀ TUNNEL', 4, (tunnelTop + tunnelBottom) / 2 + 3);
+    ctx.restore();
+
+    // Right Portal
+    ctx.save();
+    const rGrad = ctx.createLinearGradient(w, 0, w - 24, 0);
+    rGrad.addColorStop(0, 'rgba(255, 0, 170, 0.45)');
+    rGrad.addColorStop(1, 'rgba(255, 0, 170, 0)');
+    ctx.fillStyle = rGrad;
+    ctx.fillRect(w - 24, tunnelTop, 24, tunnelBottom - tunnelTop);
+
+    ctx.strokeStyle = '#ff00aa';
+    ctx.lineWidth = 2.5;
+    ctx.shadowColor = '#ff00aa';
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.moveTo(w - 18, tunnelTop);
+    ctx.lineTo(w, tunnelTop + 8);
+    ctx.moveTo(w - 18, tunnelBottom);
+    ctx.lineTo(w, tunnelBottom - 8);
+    ctx.stroke();
+
+    ctx.font = '700 8px "Press Start 2P", monospace';
+    ctx.textAlign = 'right';
+    ctx.fillStyle = `rgba(255, 0, 170, ${0.5 + 0.4 * Math.sin(time * 6)})`;
+    ctx.fillText('TUNNEL ▶', w - 4, (tunnelTop + tunnelBottom) / 2 + 3);
+    ctx.restore();
+
+    // 7. Corner Vector Outlane Guide Rails (Curved rails guiding balls into each flipper)
+    for (const f of this.flippers) {
+      const isTop = f.id === 'TL' || f.id === 'TR';
+      const isLeft = f.id === 'TL' || f.id === 'BL';
+
+      const cornerX = isLeft ? 16 : w - 16;
+
+      ctx.save();
+      ctx.strokeStyle = f.activeGlow > 0 ? '#ffffff' : 'rgba(0, 243, 255, 0.45)';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#00f3ff';
+      ctx.shadowBlur = f.activeGlow > 0 ? 14 : 6;
+
+      // Arc connecting perimeter wall to flipper pivot
+      ctx.beginPath();
+      ctx.moveTo(cornerX, f.pivotY + (isTop ? -35 : 35));
+      ctx.quadraticCurveTo(cornerX, f.pivotY, f.pivotX, f.pivotY);
+      ctx.stroke();
+
+      // Guide LED strobe dots along rail
+      const railDots = 4;
+      for (let d = 0; d < railDots; d++) {
+        const t = d / railDots;
+        const qx = (1 - t) * (1 - t) * cornerX + 2 * (1 - t) * t * cornerX + t * t * f.pivotX;
+        const qy = (1 - t) * (1 - t) * (f.pivotY + (isTop ? -35 : 35)) + 2 * (1 - t) * t * f.pivotY + t * t * f.pivotY;
+        ctx.fillStyle = (f.activeGlow > 0) ? '#ff0055' : 'rgba(0, 243, 255, 0.7)';
+        ctx.beginPath();
+        ctx.arc(qx, qy, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.restore();
+    }
+
+    ctx.restore();
+  }
+
+  private drawSpikedPinwheels(ctx: CanvasRenderingContext2D) {
+    if (this.settings.spikedPinwheels === false) return;
+
+    for (const p of this.pinwheels) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+
+      const color = p.hitGlow > 0 ? '#ffffff' : p.color;
+      const glow = 8 + p.hitGlow * 18;
+
+      // 1. Outer Mount Bezel & Strobe Direction Indicators
+      ctx.strokeStyle = `rgba(${p.id === 'left' ? '255, 170, 0' : '0, 243, 255'}, ${0.35 + p.hitGlow * 0.5})`;
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = glow;
+      ctx.beginPath();
+      ctx.arc(0, 0, p.radius + p.spikeLength + 5, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Mini rotational directional pips around bezel
+      const arrowCount = 4;
+      const arrowRadius = p.radius + p.spikeLength + 5;
+      const isClockwise = p.rotationSpeed > 0;
+      for (let i = 0; i < arrowCount; i++) {
+        const a = (i / arrowCount) * Math.PI * 2 + (isClockwise ? p.angle * 0.5 : -p.angle * 0.5);
+        const ax = Math.cos(a) * arrowRadius;
+        const ay = Math.sin(a) * arrowRadius;
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(ax, ay, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 2. Rotating Spiked Teeth Wheel
+      ctx.rotate(p.angle);
+
+      ctx.beginPath();
+      const count = p.spikeCount;
+      const rOuter = p.radius + p.spikeLength;
+      const rInner = p.radius * 0.72;
+
+      for (let i = 0; i < count; i++) {
+        const aTip = (i / count) * Math.PI * 2;
+        const aRoot = aTip + (Math.PI / count);
+
+        // Tip of the spike
+        const tipX = Math.cos(aTip) * rOuter;
+        const tipY = Math.sin(aTip) * rOuter;
+
+        // Curved valley between teeth
+        const rootX = Math.cos(aRoot) * rInner;
+        const rootY = Math.sin(aRoot) * rInner;
+
+        if (i === 0) {
+          ctx.moveTo(tipX, tipY);
+        } else {
+          ctx.lineTo(tipX, tipY);
+        }
+        ctx.lineTo(rootX, rootY);
+      }
+      ctx.closePath();
+
+      // Metallic body gradient
+      const bodyGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, rOuter);
+      bodyGrad.addColorStop(0, p.hitGlow > 0 ? '#ffffff' : '#334155');
+      bodyGrad.addColorStop(0.5, p.hitGlow > 0 ? '#ffea00' : '#1e293b');
+      bodyGrad.addColorStop(1, p.hitGlow > 0 ? p.color : '#0f172a');
+      ctx.fillStyle = bodyGrad;
+      ctx.fill();
+
+      // Sharp neon edge stroke
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // 3. Center Turbine Axle Hub
+      ctx.beginPath();
+      ctx.arc(0, 0, p.radius * 0.45, 0, Math.PI * 2);
+      ctx.fillStyle = '#080c14';
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Center glowing core pip
+      ctx.beginPath();
+      ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
+      ctx.fillStyle = p.hitGlow > 0 ? '#ffffff' : color;
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  private drawGameStateOverlay(ctx: CanvasRenderingContext2D) {
+    if (this.gameState === 'playing') return;
+
+    const w = this.width;
+    const h = this.height;
+    const time = performance.now() * 0.001;
+
+    ctx.save();
+
+    if (this.gameState === 'wave_cleared') {
+      // Victory celebration banner overlay
+      ctx.fillStyle = 'rgba(5, 12, 10, 0.72)';
+      ctx.fillRect(0, h * 0.30, w, h * 0.38);
+
+      // Rainbow / neon border lines
+      const lineGlow = ctx.createLinearGradient(0, 0, w, 0);
+      lineGlow.addColorStop(0, '#00ff66');
+      lineGlow.addColorStop(0.5, '#00f3ff');
+      lineGlow.addColorStop(1, '#ff0055');
+      ctx.fillStyle = lineGlow;
+      ctx.fillRect(0, h * 0.30, w, 3);
+      ctx.fillRect(0, h * 0.68 - 3, w, 3);
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      // Title
+      ctx.font = '900 24px "Press Start 2P", monospace';
+      ctx.fillStyle = '#00ff66';
+      ctx.shadowColor = '#00ff66';
+      ctx.shadowBlur = 16;
+      ctx.fillText(`★ WAVE ${this.wave} CLEARED! ★`, w / 2, h * 0.40);
+
+      // Subtitle
+      ctx.font = '700 13px "Press Start 2P", monospace';
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#ffffff';
+      ctx.shadowBlur = 8;
+      ctx.fillText('ALL DOTS COLLECTED // TABLE CONQUERED', w / 2, h * 0.47);
+
+      // Bonus
+      const bonus = 10000 * this.wave * this.currentMultiplier;
+      ctx.font = '700 12px "Press Start 2P", monospace';
+      ctx.fillStyle = '#ffaa00';
+      ctx.shadowColor = '#ffaa00';
+      ctx.shadowBlur = 10;
+      ctx.fillText(`+${bonus.toLocaleString()} PTS WAVE BONUS!`, w / 2, h * 0.54);
+
+      // Countdown
+      const secs = Math.max(1, Math.ceil(this.stateCountdown));
+      ctx.font = '700 11px monospace';
+      ctx.fillStyle = '#00f3ff';
+      ctx.shadowBlur = 6;
+      ctx.fillText(`NEXT WAVE STARTING IN ${secs}s...`, w / 2, h * 0.61);
+
+    } else if (this.gameState === 'game_over') {
+      // Game Over / All Balls Drained overlay
+      ctx.fillStyle = 'rgba(15, 5, 8, 0.78)';
+      ctx.fillRect(0, h * 0.30, w, h * 0.38);
+
+      ctx.fillStyle = '#ff0055';
+      ctx.shadowColor = '#ff0055';
+      ctx.shadowBlur = 14;
+      ctx.fillRect(0, h * 0.30, w, 3);
+      ctx.fillRect(0, h * 0.68 - 3, w, 3);
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      // Title
+      ctx.font = '900 24px "Press Start 2P", monospace';
+      ctx.fillStyle = '#ff0055';
+      ctx.shadowBlur = 18;
+      ctx.fillText('ALL BALLS DRAINED', w / 2, h * 0.39);
+
+      // Subtitle
+      ctx.font = '700 12px "Press Start 2P", monospace';
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#ffffff';
+      ctx.shadowBlur = 8;
+      ctx.fillText(`FINAL SCORE: ${this.score.toLocaleString()} (WAVE ${this.wave})`, w / 2, h * 0.47);
+
+      // Self-playing reset countdown
+      const secs = Math.max(1, Math.ceil(this.stateCountdown));
+      ctx.font = '700 13px "Press Start 2P", monospace';
+      ctx.fillStyle = '#00f3ff';
+      ctx.shadowColor = '#00f3ff';
+      ctx.shadowBlur = 12;
+      ctx.fillText(`AUTO-RESET IN ${secs}...`, w / 2, h * 0.55);
+
+      ctx.font = '500 10px monospace';
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
+      ctx.shadowBlur = 0;
+      ctx.fillText('ZERO-PLAYER SELF-PLAYING ARCADE // RESTARTING NEW ROUND', w / 2, h * 0.62);
+    }
+
+    ctx.restore();
   }
 }

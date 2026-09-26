@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Volume2 } from 'lucide-react';
 import { BumperQuestEngine, GameSettings } from './game/physics';
 import { soundSynth } from './audio/SoundSynthesizer';
 import { HUD } from './components/HUD';
 import { TiltVirtualPad } from './components/TiltVirtualPad';
-import { ArtworkGalleryModal } from './components/ArtworkGalleryModal';
 import { SettingsModal } from './components/SettingsModal';
 
 export const App: React.FC = () => {
@@ -20,6 +20,18 @@ export const App: React.FC = () => {
   const [totalScratches, setTotalScratches] = useState(0);
   const [ballCount, setBallCount] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
+  const [isAudioActive, setIsAudioActive] = useState(soundSynth.isRunning());
+  const [isIntroMusicPlaying, setIsIntroMusicPlaying] = useState(false);
+  const [quadBonusMessage, setQuadBonusMessage] = useState<string | null>(null);
+  const [matrixBonusMessage, setMatrixBonusMessage] = useState<string | null>(null);
+  const [litMultiplierCount, setLitMultiplierCount] = useState(0);
+
+  // Wave & Win/Loss game states
+  const [wave, setWave] = useState(1);
+  const [dotsRemaining, setDotsRemaining] = useState(32);
+  const [dotsTotal, setDotsTotal] = useState(32);
+  const [gameState, setGameState] = useState<'playing' | 'wave_cleared' | 'game_over'>('playing');
+  const [stateCountdown, setStateCountdown] = useState(0);
 
   // Settings
   const [settings, setSettings] = useState<GameSettings>({
@@ -31,16 +43,47 @@ export const App: React.FC = () => {
     crtScanlines: true,
     vectorGlow: true,
     soundEnabled: true,
+    spikedPinwheels: true,
   });
 
   // Tilt & Compass state
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
   const [compassAngle, setCompassAngle] = useState(0);
   const [hasDeviceOrientation, setHasDeviceOrientation] = useState(false);
+  const [isTiltPadOpen, setIsTiltPadOpen] = useState(false);
+  const [isZenMode, setIsZenMode] = useState(false);
 
   // Modals
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isGalleryOpen, setIsGalleryOpen] = useState(false);
+
+  // Listen to audio synthesizer state & unlock on global user gestures
+  useEffect(() => {
+    const unsubscribe = soundSynth.subscribeState((running) => {
+      setIsAudioActive(running);
+    });
+
+    const unlockOnGesture = () => {
+      soundSynth.unlock().then((running) => {
+        if (running) {
+          if (!soundSynth.isIntroPlaying()) {
+            soundSynth.startIntroTheme();
+            setIsIntroMusicPlaying(true);
+          }
+        }
+      });
+    };
+
+    window.addEventListener('pointerdown', unlockOnGesture, { capture: true, once: true });
+    window.addEventListener('keydown', unlockOnGesture, { capture: true, once: true });
+    window.addEventListener('touchstart', unlockOnGesture, { capture: true, once: true });
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('pointerdown', unlockOnGesture, { capture: true });
+      window.removeEventListener('keydown', unlockOnGesture, { capture: true });
+      window.removeEventListener('touchstart', unlockOnGesture, { capture: true });
+    };
+  }, []);
 
   // Initialize engine & canvas loop
   useEffect(() => {
@@ -49,6 +92,35 @@ export const App: React.FC = () => {
     const engine = new BumperQuestEngine(canvasRef.current);
     engineRef.current = engine;
     engine.settings = { ...settings };
+
+    // Quad-Flipper cycle reward celebration
+    engine.onQuadBonus = (newCount: number) => {
+      setQuadBonusMessage(`QUAD-FLIPPER CYCLE! +1 PINBALL (${newCount} ACTIVE)`);
+      setTimeout(() => {
+        setQuadBonusMessage(null);
+      }, 3500);
+    };
+
+    // All X-Multipliers Hit Supernova Multiball Surge
+    engine.onMultiplierMatrixBonus = (newCount: number) => {
+      setMatrixBonusMessage(`★ ALL X-MULTIPLIERS HIT! +2 BALLS +8 DOTS (${newCount} ACTIVE) ★`);
+      setTimeout(() => {
+        setMatrixBonusMessage(null);
+      }, 3800);
+    };
+
+    // Transition from record player intro theme to kinetic game FX as game begins
+    let hasStartedGameAction = false;
+    engine.onGameActivity = () => {
+      if (!hasStartedGameAction && soundSynth.isIntroPlaying()) {
+        hasStartedGameAction = true;
+        setTimeout(() => {
+          soundSynth.fadeOutIntroTheme(1.8);
+          setIsIntroMusicPlaying(false);
+        }, 2500);
+      }
+    };
+
     engine.start();
 
     // Stats update loop (10fps for React state sync without lagging canvas)
@@ -59,6 +131,12 @@ export const App: React.FC = () => {
         setTotalBumps(engineRef.current.totalBumps);
         setTotalScratches(engineRef.current.totalScratches);
         setBallCount(engineRef.current.balls.length);
+        setWave(engineRef.current.wave);
+        setDotsRemaining(engineRef.current.dotsRemaining);
+        setDotsTotal(engineRef.current.dotsTotal);
+        setGameState(engineRef.current.gameState);
+        setStateCountdown(engineRef.current.stateCountdown);
+        setLitMultiplierCount(engineRef.current.litMultiplierIds.size);
 
         if (engineRef.current.score > highScore) {
           setHighScore(engineRef.current.score);
@@ -253,9 +331,31 @@ export const App: React.FC = () => {
 
   const handleToggleMute = () => {
     handleUserInteraction();
+    if (!isAudioActive) {
+      soundSynth.unlock().then(() => {
+        setIsMuted(false);
+        soundSynth.setMute(false);
+        soundSynth.startIntroTheme();
+        setIsIntroMusicPlaying(true);
+      });
+      return;
+    }
     const next = !isMuted;
     setIsMuted(next);
     soundSynth.setMute(next);
+  };
+
+  const handleToggleIntroMusic = () => {
+    handleUserInteraction();
+    if (soundSynth.isIntroPlaying()) {
+      soundSynth.stopIntroTheme();
+      setIsIntroMusicPlaying(false);
+    } else {
+      soundSynth.unlock().then(() => {
+        soundSynth.startIntroTheme();
+        setIsIntroMusicPlaying(true);
+      });
+    }
   };
 
   const handleTriggerFlipper = (id: 'TL' | 'TR' | 'BL' | 'BR') => {
@@ -296,6 +396,25 @@ export const App: React.FC = () => {
         className="w-full h-full block cursor-crosshair"
       />
 
+      {/* Prominent Tap to Unmute Banner (if browser blocked autoplay before user gesture) */}
+      {!isAudioActive && !isMuted && (
+        <div className="absolute top-12 left-0 right-0 z-40 flex justify-center pointer-events-none px-4 animate-in fade-in slide-in-from-top-2">
+          <button
+            onClick={() => {
+              soundSynth.unlock().then((running) => {
+                if (running) {
+                  soundSynth.playBumperChime(2);
+                }
+              });
+            }}
+            className="pointer-events-auto flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#0a0c18]/95 hover:bg-[#121428] border-2 border-cyan-400 text-cyan-200 font-mono text-xs font-bold shadow-xl shadow-cyan-500/40 animate-pulse transition-all active:scale-95 cursor-pointer"
+          >
+            <Volume2 className="w-4 h-4 text-cyan-400" />
+            <span>TAP ANYWHERE TO UNMUTE SYNTH AUDIO</span>
+          </button>
+        </div>
+      )}
+
       {/* Retro Arcade HUD */}
       <HUD
         score={score}
@@ -306,29 +425,47 @@ export const App: React.FC = () => {
         ballCount={ballCount}
         settings={settings}
         isMuted={isMuted}
+        isAudioActive={isAudioActive}
+        isIntroMusicPlaying={isIntroMusicPlaying}
+        isTiltPadOpen={isTiltPadOpen}
+        isZenMode={isZenMode}
+        quadBonusMessage={quadBonusMessage}
+        matrixBonusMessage={matrixBonusMessage}
+        litMultiplierCount={litMultiplierCount}
+        wave={wave}
+        dotsRemaining={dotsRemaining}
+        dotsTotal={dotsTotal}
+        gameState={gameState}
+        stateCountdown={stateCountdown}
+        onRestartRound={() => engineRef.current?.autoRestartGame()}
         onToggleMute={handleToggleMute}
+        onToggleIntroMusic={handleToggleIntroMusic}
         onToggleAutoPilot={handleToggleAutoPilot}
         onSpawnBall={handleSpawnBall}
         onClearBalls={handleClearBalls}
         onCycleTheme={handleCycleTheme}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        onOpenGallery={() => setIsGalleryOpen(true)}
+        onToggleTiltPad={() => setIsTiltPadOpen(prev => !prev)}
+        onToggleZenMode={() => setIsZenMode(prev => !prev)}
         onTriggerFlipper={handleTriggerFlipper}
         onReleaseFlipper={handleReleaseFlipper}
       />
 
-      {/* Bottom-Right Virtual Tilt Pad */}
-      <div className="absolute bottom-16 right-3 sm:right-6 z-30 pointer-events-auto">
-        <TiltVirtualPad
-          tiltX={tilt.x}
-          tiltY={tilt.y}
-          compassAngle={compassAngle}
-          onTiltChange={handleManualTilt}
-          onResetTilt={handleResetTilt}
-          hasDeviceOrientation={hasDeviceOrientation}
-          onRequestSensorPermission={requestSensorPermission}
-        />
-      </div>
+      {/* Floating Virtual Tilt Pad (Toggleable, neatly docked at mid-right away from flippers) */}
+      {isTiltPadOpen && (
+        <div className="absolute top-16 right-3 sm:right-6 z-30 pointer-events-auto animate-in fade-in zoom-in-95">
+          <TiltVirtualPad
+            tiltX={tilt.x}
+            tiltY={tilt.y}
+            compassAngle={compassAngle}
+            onTiltChange={handleManualTilt}
+            onResetTilt={handleResetTilt}
+            hasDeviceOrientation={hasDeviceOrientation}
+            onRequestSensorPermission={requestSensorPermission}
+            onClose={() => setIsTiltPadOpen(false)}
+          />
+        </div>
+      )}
 
       {/* Settings Modal */}
       <SettingsModal
@@ -338,12 +475,6 @@ export const App: React.FC = () => {
         onUpdateSettings={(newVals) => setSettings(prev => ({ ...prev, ...newVals }))}
         onResetGame={handleResetGame}
         onRequestSensorPermission={requestSensorPermission}
-      />
-
-      {/* Concept Art & Design Vault Modal */}
-      <ArtworkGalleryModal
-        isOpen={isGalleryOpen}
-        onClose={() => setIsGalleryOpen(false)}
       />
     </div>
   );

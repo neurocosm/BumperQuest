@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Compass, RotateCw } from 'lucide-react';
+import { Compass, RotateCw, X } from 'lucide-react';
 
 interface TiltVirtualPadProps {
   tiltX: number; // -1 to 1
@@ -9,6 +9,7 @@ interface TiltVirtualPadProps {
   onResetTilt: () => void;
   hasDeviceOrientation: boolean;
   onRequestSensorPermission?: () => void;
+  onClose?: () => void;
 }
 
 export const TiltVirtualPad: React.FC<TiltVirtualPadProps> = ({
@@ -19,6 +20,7 @@ export const TiltVirtualPad: React.FC<TiltVirtualPadProps> = ({
   onResetTilt,
   hasDeviceOrientation,
   onRequestSensorPermission,
+  onClose,
 }) => {
   const padRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -80,26 +82,37 @@ export const TiltVirtualPad: React.FC<TiltVirtualPadProps> = ({
   const dotY = 50 + (tiltY / 0.4) * 38;
 
   return (
-    <div className="flex flex-col items-center gap-1.5 p-2 bg-[#0c0d18]/90 border border-cyan-500/30 rounded-xl backdrop-blur-md shadow-lg shadow-cyan-950/40 select-none">
-      <div className="flex items-center justify-between w-full px-1 text-[10px] font-mono text-cyan-400 font-bold uppercase tracking-wider">
+    <div className="flex flex-col items-center gap-1.5 p-2 bg-[#0c0d18]/95 border border-cyan-500/40 rounded-xl backdrop-blur-md shadow-2xl shadow-cyan-950/80 select-none w-28">
+      <div className="flex items-center justify-between w-full px-0.5 text-[9px] font-mono text-cyan-400 font-bold uppercase tracking-wider">
         <span className="flex items-center gap-1">
-          <Compass className="w-3 h-3 text-cyan-400 animate-pulse" />
-          KINETIC TILT
+          <Compass className="w-3 h-3 text-cyan-400 animate-spin-slow" />
+          TILT PAD
         </span>
-        <button
-          onClick={onResetTilt}
-          title="Reset Tilt"
-          className="text-slate-400 hover:text-white transition-colors"
-        >
-          <RotateCw className="w-2.5 h-2.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onResetTilt}
+            title="Reset Tilt"
+            className="text-slate-400 hover:text-white transition-colors p-0.5"
+          >
+            <RotateCw className="w-2.5 h-2.5" />
+          </button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              title="Close Tilt Pad"
+              className="text-slate-400 hover:text-rose-400 transition-colors p-0.5"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Touch Pad Area */}
       <div
         ref={padRef}
         onPointerDown={handlePointerDown}
-        className="relative w-20 h-20 rounded-full border border-cyan-500/40 bg-black/60 cursor-crosshair overflow-hidden touch-none flex items-center justify-center shadow-inner shadow-cyan-900/40"
+        className="relative w-20 h-20 rounded-full border border-cyan-500/40 bg-black/70 cursor-crosshair overflow-hidden touch-none flex items-center justify-center shadow-inner shadow-cyan-900/40"
       >
         {/* Crosshair guide lines */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -120,18 +133,18 @@ export const TiltVirtualPad: React.FC<TiltVirtualPadProps> = ({
       </div>
 
       {/* Sensor Info / Prompt */}
-      <div className="text-[9px] font-mono text-slate-400 text-center leading-tight">
+      <div className="text-[8px] font-mono text-slate-400 text-center leading-tight">
         {hasDeviceOrientation ? (
-          <span className="text-green-400">GYRO CONNECTED</span>
+          <span className="text-green-400 font-bold">GYRO SYNCED</span>
         ) : onRequestSensorPermission ? (
           <button
             onClick={onRequestSensorPermission}
-            className="text-[9px] text-cyan-300 underline hover:text-cyan-200"
+            className="text-[8px] text-cyan-300 underline hover:text-cyan-200"
           >
             Enable Phone Gyro
           </button>
         ) : (
-          <span>Drag pad or tilt</span>
+          <span>Drag or WASD</span>
         )}
       </div>
     </div>

@@ -20,8 +20,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onResetGame,
   onRequestSensorPermission,
 }) => {
-  const [vol, setVol] = React.useState(0.7);
-  const [crackleVol, setCrackleVol] = React.useState(0.25);
+  const [vol, setVol] = React.useState(0.8);
+  const [musicVol, setMusicVol] = React.useState(0.45);
   const [muted, setMuted] = React.useState(soundSynth.getMuted());
 
   if (!isOpen) return null;
@@ -30,18 +30,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const nextMuted = !muted;
     setMuted(nextMuted);
     soundSynth.setMute(nextMuted);
+    if (!nextMuted) {
+      soundSynth.unlock().then(() => {
+        soundSynth.playBumperChime(1);
+      });
+    }
   };
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = parseFloat(e.target.value);
     setVol(v);
     soundSynth.setVolume(v);
+    soundSynth.unlock();
   };
 
-  const handleCrackleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleVolumeCommit = () => {
+    soundSynth.unlock().then(() => {
+      soundSynth.playBumperChime(3);
+    });
+  };
+
+  const handleMusicVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const v = parseFloat(e.target.value);
-    setCrackleVol(v);
-    soundSynth.setCrackleVolume(v);
+    setMusicVol(v);
+    soundSynth.setMusicVolume(v);
+    soundSynth.unlock();
   };
 
   return (
@@ -163,6 +176,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             )}
           </div>
 
+          {/* Spiked Pinwheels Ricochet Toggle */}
+          <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700 bg-slate-900/40">
+            <div>
+              <span className="font-mono text-xs font-bold text-amber-300">Spiked Corner Pinwheels</span>
+              <p className="text-[11px] text-slate-400">High-rpm spiked ricochet turbines in bottom corners to radically fling balls back into play</p>
+            </div>
+            <button
+              onClick={() => onUpdateSettings({ spikedPinwheels: settings.spikedPinwheels === false ? true : false })}
+              className={`px-3 py-1 rounded text-xs font-mono font-bold transition-all ${
+                settings.spikedPinwheels !== false ? 'bg-amber-400 text-black' : 'bg-slate-700 text-slate-300'
+              }`}
+            >
+              {settings.spikedPinwheels !== false ? 'ON' : 'OFF'}
+            </button>
+          </div>
+
           {/* CRT Scanline Toggle */}
           <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700 bg-slate-900/40">
             <div>
@@ -208,22 +237,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 step={0.05}
                 value={vol}
                 onChange={handleVolumeChange}
+                onPointerUp={handleVolumeCommit}
                 className="w-full accent-cyan-400 bg-slate-800 h-1.5 rounded-lg cursor-pointer"
               />
             </div>
 
             <div className="space-y-1">
               <div className="flex justify-between text-[11px] font-mono text-slate-400">
-                <span>Analog Vinyl Groove Crackle</span>
-                <span>{Math.round(crackleVol * 100)}%</span>
+                <span>Record Player Retro Theme / Chiptune</span>
+                <span>{Math.round(musicVol * 100)}%</span>
               </div>
               <input
                 type="range"
                 min={0}
                 max={1}
                 step={0.05}
-                value={crackleVol}
-                onChange={handleCrackleChange}
+                value={musicVol}
+                onChange={handleMusicVolumeChange}
+                onPointerUp={handleVolumeCommit}
                 className="w-full accent-pink-400 bg-slate-800 h-1.5 rounded-lg cursor-pointer"
               />
             </div>
