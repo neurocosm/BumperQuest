@@ -91,6 +91,40 @@ export const HUD: React.FC<HUDProps> = ({
   const [isBottomHovered, setIsBottomHovered] = useState(false);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
+  // Top score HUD auto-hide after 15 seconds of inactivity, hover-reveal & eyeball toggle
+  const [isTopVisible, setIsTopVisible] = useState(true);
+  const [isTopHovered, setIsTopHovered] = useState(false);
+  const topHideTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const resetTopHideTimer = React.useCallback(() => {
+    setIsTopVisible(true);
+    if (topHideTimeoutRef.current) clearTimeout(topHideTimeoutRef.current);
+    topHideTimeoutRef.current = setTimeout(() => {
+      setIsTopVisible(false);
+    }, 15000); // 15 seconds
+  }, []);
+
+  // Reset hide timer whenever score, multiplier, or wave changes
+  React.useEffect(() => {
+    resetTopHideTimer();
+  }, [score, multiplier, wave, resetTopHideTimer]);
+
+  // Reset hide timer on user interaction (mouse move, keyboard, touch)
+  React.useEffect(() => {
+    const handleActivity = () => {
+      resetTopHideTimer();
+    };
+    window.addEventListener('mousemove', handleActivity);
+    window.addEventListener('keydown', handleActivity);
+    window.addEventListener('pointerdown', handleActivity);
+    return () => {
+      window.removeEventListener('mousemove', handleActivity);
+      window.removeEventListener('keydown', handleActivity);
+      window.removeEventListener('pointerdown', handleActivity);
+      if (topHideTimeoutRef.current) clearTimeout(topHideTimeoutRef.current);
+    };
+  }, [resetTopHideTimer]);
+
   // In Zen mode, everything is hidden except a tiny subtle toggle icon in the top right
   if (isZenMode) {
     return (
@@ -106,10 +140,42 @@ export const HUD: React.FC<HUDProps> = ({
     );
   }
 
+  const isScoreBarShown = isTopVisible || isTopHovered;
+
   return (
     <>
-      {/* Sleek, Non-Intrusive Top Floating Status Ribbon */}
-      <header className="absolute top-0 left-0 right-0 z-30 px-3 py-1.5 sm:px-4 sm:py-2 flex items-center justify-between pointer-events-none bg-gradient-to-b from-black/85 via-black/35 to-transparent">
+      {/* Top Edge Hover Reveal Trigger Strip */}
+      <div
+        onMouseEnter={() => setIsTopHovered(true)}
+        className="fixed top-0 left-0 right-0 h-4 z-30 pointer-events-auto"
+      />
+
+      {/* Floating Eyeball Toggle when Score HUD is hidden (top right) */}
+      {!isScoreBarShown && (
+        <div className="absolute top-2 right-2 z-40 pointer-events-auto animate-in fade-in duration-300">
+          <button
+            onClick={() => {
+              setIsTopVisible(true);
+              resetTopHideTimer();
+            }}
+            title="Show Score & Multiplier HUD (Auto-hides after 15s)"
+            className="p-1.5 sm:p-2 rounded-full bg-[#0a0c16]/90 hover:bg-[#12162a] text-cyan-400 border border-cyan-500/50 backdrop-blur-md shadow-lg shadow-cyan-950/80 transition-all hover:scale-105 active:scale-95"
+          >
+            <Eye className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Sleek, Non-Intrusive Top Floating Status Ribbon (Disappears after 15 seconds) */}
+      <header
+        onMouseEnter={() => setIsTopHovered(true)}
+        onMouseLeave={() => setIsTopHovered(false)}
+        className={`absolute top-0 left-0 right-0 z-30 px-3 py-1.5 sm:px-4 sm:py-2 flex items-center justify-between transition-all duration-500 ease-out transform ${
+          isScoreBarShown
+            ? 'translate-y-0 opacity-100 pointer-events-none'
+            : '-translate-y-full opacity-0 pointer-events-none'
+        } bg-gradient-to-b from-black/85 via-black/35 to-transparent`}
+      >
         {/* Left: Minimal Title & Auto Mode */}
         <div className="flex items-center gap-2 pointer-events-auto">
           <div className="flex items-center gap-1.5">
@@ -269,10 +335,13 @@ export const HUD: React.FC<HUDProps> = ({
             <Settings className="w-3.5 h-3.5" />
           </button>
 
-          {/* Zen View Toggle */}
+          {/* Hide Score HUD (or wait 15 seconds) */}
           <button
-            onClick={onToggleZenMode}
-            title="Hide HUD (Zen Mode)"
+            onClick={() => {
+              setIsTopVisible(false);
+              setIsTopHovered(false);
+            }}
+            title="Hide Score HUD (Auto-hides after 15s)"
             className="p-1.5 rounded-lg bg-black/60 border border-slate-800 hover:border-slate-700 text-slate-400 hover:text-white transition-colors"
           >
             <EyeOff className="w-3.5 h-3.5" />

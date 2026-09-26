@@ -12,6 +12,8 @@ export interface Ball {
   lastBounceTime: number;
   visitedFlippers: Set<string>;
   visitedMultipliers: Set<number>;
+  stasisImmunity?: number;
+  isCourtesyBall?: boolean;
 }
 
 export interface FloatingNotice {
@@ -68,11 +70,15 @@ export interface ElectricFence {
   y1: number;
   x2: number;
   y2: number;
+  baseX?: number;
+  baseY?: number;
   active: boolean;
   pulseTimer: number;
   pulseDuration: number;
   period: number;
   color: string;
+  hitGlow?: number;
+  isMoving?: boolean;
 }
 
 export interface DotNode {
@@ -123,10 +129,14 @@ export interface NeedleTonearm {
   pivotY: number;
   length: number;
   baseAngle: number;
+  parkedAngle: number;
+  extendedAngle: number;
   currentAngle: number;
   targetAngle: number;
   angularVelocity: number;
   isSuperActive: boolean;
+  isExtended: boolean;
+  cycleTimer: number; // extension cycle between LP and 45 RPM
   isFlipping: boolean;
   flipTimer: number;
   chargeGlow: number;
@@ -140,6 +150,8 @@ export interface LaserSlicer {
   radius: number;
   angle: number;
   cooldownTimer: number;
+  cycleTimer: number; // 30-second cycle: 25s inactive, 5s engaged
+  isEngaged: boolean; // active for 5s of every 30s
   activeGlow: number;
   sliceCount: number;
 }
@@ -151,6 +163,8 @@ export interface StasisCapturedBall {
   timer: number;
   maxTimer: number;
   orbitAngle: number;
+  orbitRadius: number;
+  orbitSpeed: number;
 }
 
 export interface StasisChamber {
@@ -159,7 +173,7 @@ export interface StasisChamber {
   radius: number;
   rotation: number;
   activeGlow: number;
-  capturedBall: StasisCapturedBall | null;
+  capturedBalls: StasisCapturedBall[];
 }
 
 export interface GameSettings {
@@ -195,11 +209,15 @@ export class BumperQuestEngine {
   public onGameActivity?: () => void;
   public litMultiplierIds: Set<number> = new Set();
 
-  // Turntable center bumper
+  // Turntable center bumper (varies dynamically between 12" LP and 45 RPM single!)
   public turntable = {
     x: 400,
     y: 400,
-    radius: 110,
+    radius: 112,
+    targetRadius: 112,
+    baseLPRadius: 112,
+    compact45Radius: 76,
+    is45RPM: false,
     angle: 0,
     angularVelocity: 0.04,
     targetAngularVelocity: 0.04,
@@ -209,16 +227,20 @@ export class BumperQuestEngine {
     labelColor: '#ff0055',
   };
 
-  // Secret Super Flipper Needle Tonearm (Powers up when > 4 balls are generated!)
+  // Audiophile Tonearm: Rests safely parked off the vinyl, extends occasionally to play a 45!
   public needleArm: NeedleTonearm = {
-    pivotX: 550,
-    pivotY: 280,
-    length: 130,
+    pivotX: 560,
+    pivotY: 270,
+    length: 135,
     baseAngle: 2.18,
-    currentAngle: 2.18,
-    targetAngle: 2.18,
+    parkedAngle: 1.62,
+    extendedAngle: 2.18,
+    currentAngle: 1.62,
+    targetAngle: 1.62,
     angularVelocity: 0,
     isSuperActive: false,
+    isExtended: false,
+    cycleTimer: 24.0,
     isFlipping: false,
     flipTimer: 0,
     chargeGlow: 0,
@@ -237,25 +259,27 @@ export class BumperQuestEngine {
     height: 28,
   };
 
-  // Top-Left Laser Slicer (Cuts a ball into twins!)
+  // Top-Left Laser Slicer (Engages for 5 seconds every 30 seconds!)
   public slicer: LaserSlicer = {
     x: 50,
     y: 50,
     radius: 20,
     angle: 0,
     cooldownTimer: 0,
+    cycleTimer: 25.0, // starts in charging cycle: 25s until first engagement
+    isEngaged: false,
     activeGlow: 0,
     sliceCount: 0,
   };
 
-  // Top-Right Stasis Capture Chamber (Captures a ball for 15 seconds then releases it!)
+  // Top-Right Stasis Capture Chamber (Captures multiple balls for 15s each, shoots to record player!)
   public stasisChamber: StasisChamber = {
     x: 750,
     y: 50,
     radius: 24,
     rotation: 0,
     activeGlow: 0,
-    capturedBall: null,
+    capturedBalls: [],
   };
 
   // Physics params
@@ -331,6 +355,7 @@ export class BumperQuestEngine {
   private lastTime: number = 0;
   private animFrameId: number | null = null;
   private dotEatCounter: number = 0;
+  private bumperMoveTimer: number = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -419,6 +444,53 @@ export class BumperQuestEngine {
       lastBounceTime: 0,
       visitedFlippers: new Set<string>(),
       visitedMultipliers: new Set<number>(),
+    });
+  }
+
+  public spawnCourtesyBall() {
+    // Only spawn if no courtesy ball is already in play
+    if (this.balls.some(b => b.isCourtesyBall)) return;
+
+    const startX = this.width / 2;
+    const startY = this.height * 0.28;
+    const angle = Math.PI * 0.5 + (Math.random() - 0.5) * 0.6; // Downward launch into arena
+    const speed = 5.5;
+
+    this.balls.push({
+      id: Date.now() + Math.random(),
+      x: startX,
+      y: startY,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      radius: 9,
+      color: '#ffea00',
+      trail: [],
+      lastBounceTime: 0,
+      visitedFlippers: new Set<string>(),
+      visitedMultipliers: new Set<number>(),
+      isCourtesyBall: true,
+      stasisImmunity: 9999, // Cannot be captured by stasis
+    });
+
+    soundSynth.playBumperChime(3);
+    this.addSparks(startX, startY, '#ffea00', 16);
+    this.shockwaves.push({
+      x: startX,
+      y: startY,
+      radius: 10,
+      maxRadius: 85,
+      color: '#ffea00',
+      alpha: 1.0,
+    });
+
+    this.notices.push({
+      text: '⏱️ COURTESY BALL DISPATCHED!',
+      x: startX - 75,
+      y: startY - 20,
+      vy: -0.3,
+      life: 0,
+      maxLife: 85,
+      color: '#ffea00',
     });
   }
 
@@ -554,54 +626,61 @@ export class BumperQuestEngine {
     const gadgetY = Math.max(26, topMarginY * 0.48);
     const r = Math.min(22, Math.max(16, Math.min(w, h) * 0.038)) * 0.95;
 
-    // Top-Left Laser Slicer (Splits balls into twins)
+    // Top-Left Laser Slicer (Engages 5s every 30s)
     this.slicer = {
       x: leftX,
       y: gadgetY,
       radius: r,
       angle: 0,
       cooldownTimer: 0,
+      cycleTimer: this.slicer?.cycleTimer ?? 25.0,
+      isEngaged: false,
       activeGlow: 0,
-      sliceCount: 0,
+      sliceCount: this.slicer?.sliceCount ?? 0,
     };
 
-    // Top-Right Stasis Capture Chamber (Captures a ball for 15s then releases)
+    // Top-Right Stasis Capture Chamber (Captures multiple balls for 15s each, shoots to record player!)
     this.stasisChamber = {
       x: rightX,
       y: gadgetY,
       radius: r * 1.15,
       rotation: 0,
       activeGlow: 0,
-      capturedBall: this.stasisChamber?.capturedBall || null,
+      capturedBalls: this.stasisChamber?.capturedBalls || [],
     };
   }
 
   private setupNeedleArm() {
     const cx = this.width / 2;
     const cy = this.height / 2;
-    const r = this.turntable.radius;
+    const r = this.turntable.baseLPRadius;
 
     // Anchor pivot outside top-right perimeter of the vinyl disc
-    const pivotX = cx + r * 1.34;
-    const pivotY = cy - r * 1.05;
+    const pivotX = cx + r * 1.42;
+    const pivotY = cy - r * 1.12;
 
-    // Rest position pointing toward the vinyl groove
-    const stylusRestX = cx + r * 0.72;
-    const stylusRestY = cy - r * 0.22;
-    const dx = stylusRestX - pivotX;
-    const dy = stylusRestY - pivotY;
+    // Extended cue position onto the compact 45 RPM record
+    const stylusExtendedX = cx + 50;
+    const stylusExtendedY = cy - 25;
+    const dx = stylusExtendedX - pivotX;
+    const dy = stylusExtendedY - pivotY;
     const length = Math.hypot(dx, dy);
-    const baseAngle = Math.atan2(dy, dx);
+    const extendedAngle = Math.atan2(dy, dx);
+    const parkedAngle = extendedAngle - 0.58; // tilted safely back onto rest cradle
 
     this.needleArm = {
       pivotX,
       pivotY,
       length,
-      baseAngle,
-      currentAngle: baseAngle,
-      targetAngle: baseAngle,
+      baseAngle: extendedAngle,
+      parkedAngle,
+      extendedAngle,
+      currentAngle: parkedAngle,
+      targetAngle: parkedAngle,
       angularVelocity: 0,
-      isSuperActive: this.balls.length > 4,
+      isSuperActive: false,
+      isExtended: false,
+      cycleTimer: 24.0,
       isFlipping: false,
       flipTimer: 0,
       chargeGlow: 0,
@@ -666,7 +745,7 @@ export class BumperQuestEngine {
         color: '#ff0055',
         hitGlow: 0,
       },
-      // 🛑 Rectangle: Heavy pendulum shield sliding side to side
+      // 🛑 Rectangle: Heavy bumper shield sliding side to side
       {
         id: 4,
         type: 'rectangle',
@@ -691,30 +770,43 @@ export class BumperQuestEngine {
     const cy = this.height / 2;
     const s = Math.min(this.width, this.height) * 0.36;
 
+    // 20% size reduction: halfWidth reduced from s * 0.45 down to s * 0.36
+    const halfWidth = s * 0.36;
+    const topBaseY = cy - s * 0.72;
+    const botBaseY = cy + s * 0.72;
+
     this.fences = [
-      // Top-mid gate
+      // Top Bumper directly above the record (moves up/down and side-to-side independently)
       {
-        x1: cx - s * 0.45,
-        y1: cy - s * 0.72,
-        x2: cx + s * 0.45,
-        y2: cy - s * 0.72,
+        x1: cx - halfWidth,
+        y1: topBaseY,
+        x2: cx + halfWidth,
+        y2: topBaseY,
+        baseX: cx,
+        baseY: topBaseY,
         active: true,
         pulseTimer: 0,
-        pulseDuration: 180,
-        period: 320,
+        pulseDuration: 999999,
+        period: 999999,
         color: '#00f3ff',
+        hitGlow: 0,
+        isMoving: false,
       },
-      // Bottom-mid gate
+      // Bottom Bumper directly below the record (moves up/down and side-to-side independently)
       {
-        x1: cx - s * 0.45,
-        y1: cy + s * 0.72,
-        x2: cx + s * 0.45,
-        y2: cy + s * 0.72,
-        active: false,
-        pulseTimer: 160,
-        pulseDuration: 180,
-        period: 320,
+        x1: cx - halfWidth,
+        y1: botBaseY,
+        x2: cx + halfWidth,
+        y2: botBaseY,
+        baseX: cx,
+        baseY: botBaseY,
+        active: true,
+        pulseTimer: 0,
+        pulseDuration: 999999,
+        period: 999999,
         color: '#ff0055',
+        hitGlow: 0,
+        isMoving: false,
       },
     ];
   }
@@ -724,25 +816,58 @@ export class BumperQuestEngine {
     const cx = this.width / 2;
     const cy = this.height / 2;
     const rOuter = Math.min(this.width, this.height) * 0.38;
-    const rInner = this.turntable.radius + 36;
+    const rInner = this.turntable.baseLPRadius + 40;
 
-    // Rings of retro arcade dots based on wave level
-    // Wave 1: 2 rings (32 dots) - fast, accessible arcade wave
-    // Wave 2: 3 rings (60 dots)
-    // Wave 3+: 3-4 rings with bonus center constellation
-    const ringCount = Math.min(4, 2 + ((wave - 1) % 3));
-    for (let ring = 0; ring < ringCount; ring++) {
-      const ringRadius = rInner + (rOuter - rInner) * ((ring + 0.5) / ringCount);
-      const dotCount = 12 + ring * 8;
+    // Refined, clean, elegant arcade constellation dots - NEVER a dense glob!
+    if (wave === 1) {
+      // Wave 1: 14 evenly spaced constellation dots
+      const dotCount = 14;
+      const ringRadius = (rInner + rOuter) * 0.5;
       for (let i = 0; i < dotCount; i++) {
         const a = (i / dotCount) * Math.PI * 2;
         this.dots.push({
           x: cx + Math.cos(a) * ringRadius,
           y: cy + Math.sin(a) * ringRadius,
-          radius: 3.5,
+          radius: 3.0,
           collected: false,
           respawnTime: 0,
         });
+      }
+    } else if (wave === 2) {
+      // Wave 2: 18 dots across 2 concentric rings
+      const rings = [
+        { radius: rInner + (rOuter - rInner) * 0.35, count: 8 },
+        { radius: rInner + (rOuter - rInner) * 0.80, count: 10 },
+      ];
+      for (const r of rings) {
+        for (let i = 0; i < r.count; i++) {
+          const a = (i / r.count) * Math.PI * 2;
+          this.dots.push({
+            x: cx + Math.cos(a) * r.radius,
+            y: cy + Math.sin(a) * r.radius,
+            radius: 3.0,
+            collected: false,
+            respawnTime: 0,
+          });
+        }
+      }
+    } else {
+      // Wave 3+: 22 dots across 2 concentric rings
+      const rings = [
+        { radius: rInner + (rOuter - rInner) * 0.32, count: 10 },
+        { radius: rInner + (rOuter - rInner) * 0.78, count: 12 },
+      ];
+      for (const r of rings) {
+        for (let i = 0; i < r.count; i++) {
+          const a = (i / r.count) * Math.PI * 2 + (r.count % 2 === 0 ? 0.1 : 0);
+          this.dots.push({
+            x: cx + Math.cos(a) * r.radius,
+            y: cy + Math.sin(a) * r.radius,
+            radius: 3.0,
+            collected: false,
+            respawnTime: 0,
+          });
+        }
       }
     }
 
@@ -761,11 +886,6 @@ export class BumperQuestEngine {
         this.bottomFlairGlow = 1.0;
       }
       soundSynth.playFlipperSnap();
-    }
-
-    // Secret Super Needle Arm also performs a synchronous power sweep!
-    if (this.needleArm.isSuperActive) {
-      this.triggerNeedleFlipper();
     }
   }
 
@@ -976,13 +1096,133 @@ export class BumperQuestEngine {
   }
 
   private updateElectricFences(dt: number) {
-    for (const f of this.fences) {
-      f.pulseTimer += 1;
-      if (f.pulseTimer >= f.period) {
-        f.pulseTimer = 0;
+    if (this.fences.length < 2) return;
+
+    // Master 60-second cycle:
+    // Top bumper moves during 0s - 30s window (active excursion 0s - 9s)
+    // Bottom bumper moves during 30s - 60s window (active excursion 30s - 39s)
+    // They are spaced 30 seconds apart, move independently, and never move at the same time!
+    this.bumperMoveTimer = (this.bumperMoveTimer + dt) % 60.0;
+    const t = this.bumperMoveTimer;
+
+    const cx = this.width / 2;
+    const cy = this.height / 2;
+    const s = Math.min(this.width, this.height) * 0.36;
+
+    // 20% size reduction: halfWidth is s * 0.36 (80% of original s * 0.45)
+    const halfWidth = s * 0.36;
+    const topBaseY = cy - s * 0.72;
+    const botBaseY = cy + s * 0.72;
+
+    const topBumper = this.fences[0];
+    const botBumper = this.fences[1];
+
+    const maxVertTravel = 40; // Glides 40px further from the record toward the gutter drain to relieve drain pressure!
+    const maxSideTravel = 52; // Glides 52px side-to-side on opposite sides of one another
+
+    // Cycle alternator for horizontal side (cycles between Left/Right every 60s)
+    const sideDir = Math.floor((performance.now() * 0.001) / 60.0) % 2 === 0 ? 1 : -1;
+
+    let topVertOffset = 0;
+    let topSideOffset = 0;
+    let topIsMoving = false;
+
+    let botVertOffset = 0;
+    let botSideOffset = 0;
+    let botIsMoving = false;
+
+    // 1. TOP BUMPER INDEPENDENT MOVEMENT: 0s to 30s window (active excursion 0s to 9s)
+    if (t >= 0 && t < 9.0) {
+      topIsMoving = true;
+      let progress = 0;
+      if (t < 2.5) {
+        // Gliding out further from record (UP toward top drain) and to side (e.g. Left)
+        const frac = t / 2.5;
+        progress = 0.5 - 0.5 * Math.cos(frac * Math.PI);
+        if (frac < 0.04 && !topBumper.isMoving) {
+          soundSynth.playBumperChime(2);
+          this.notices.push({
+            text: '▲ TOP BUMPER GUARDING DRAIN ▲',
+            x: cx - 45 * sideDir,
+            y: topBaseY - 55,
+            vy: -0.3,
+            life: 0,
+            maxLife: 70,
+            color: '#00f3ff',
+          });
+        }
+      } else if (t < 6.5) {
+        // Holding at outer guard position (relieving top drain pressure)
+        progress = 1.0;
+      } else {
+        // Gliding back to original center base place
+        const frac = (t - 6.5) / 2.5;
+        progress = 1.0 - (0.5 - 0.5 * Math.cos(frac * Math.PI));
+        if (frac < 0.04) {
+          soundSynth.playBumperChime(1);
+        }
       }
-      f.active = f.pulseTimer < f.pulseDuration;
+
+      // Moves UP (negative Y, further from record, toward top drain) and to SIDE
+      topVertOffset = -maxVertTravel * progress;
+      topSideOffset = -maxSideTravel * sideDir * progress;
     }
+
+    // 2. BOTTOM BUMPER INDEPENDENT MOVEMENT: 30s to 60s window (active excursion 30s to 39s)
+    // 30 SECONDS APART from top bumper! Top bumper is resting at original base place.
+    if (t >= 30.0 && t < 39.0) {
+      botIsMoving = true;
+      const bTime = t - 30.0;
+      let progress = 0;
+      if (bTime < 2.5) {
+        // Gliding out further from record (DOWN toward bottom drain) and to OPPOSITE side (e.g. Right)
+        const frac = bTime / 2.5;
+        progress = 0.5 - 0.5 * Math.cos(frac * Math.PI);
+        if (frac < 0.04 && !botBumper.isMoving) {
+          soundSynth.playBumperChime(2);
+          this.notices.push({
+            text: '▼ BOTTOM BUMPER GUARDING DRAIN ▼',
+            x: cx + 45 * sideDir,
+            y: botBaseY + 55,
+            vy: 0.3,
+            life: 0,
+            maxLife: 70,
+            color: '#ff0055',
+          });
+        }
+      } else if (bTime < 6.5) {
+        // Holding at outer guard position (relieving bottom drain pressure)
+        progress = 1.0;
+      } else {
+        // Gliding back to original center base place
+        const frac = (bTime - 6.5) / 2.5;
+        progress = 1.0 - (0.5 - 0.5 * Math.cos(frac * Math.PI));
+        if (frac < 0.04) {
+          soundSynth.playBumperChime(1);
+        }
+      }
+
+      // Moves DOWN (positive Y, further from record, toward bottom drain) and to OPPOSITE SIDE (+ vs -)
+      botVertOffset = maxVertTravel * progress;
+      botSideOffset = maxSideTravel * sideDir * progress;
+    }
+
+    // Apply computed 2D positions
+    const topCenterX = cx + topSideOffset;
+    topBumper.x1 = topCenterX - halfWidth;
+    topBumper.x2 = topCenterX + halfWidth;
+    topBumper.y1 = topBaseY + topVertOffset;
+    topBumper.y2 = topBaseY + topVertOffset;
+    topBumper.isMoving = topIsMoving;
+    topBumper.hitGlow = Math.max(0, (topBumper.hitGlow || 0) - dt * 2.5);
+
+    const botCenterX = cx + botSideOffset;
+    botBumper.x1 = botCenterX - halfWidth;
+    botBumper.x2 = botCenterX + halfWidth;
+    botBumper.y1 = botBaseY + botVertOffset;
+    botBumper.y2 = botBaseY + botVertOffset;
+    botBumper.isMoving = botIsMoving;
+    botBumper.hitGlow = Math.max(0, (botBumper.hitGlow || 0) - dt * 2.5);
   }
 
   private updateFlippers(dt: number) {
@@ -1034,77 +1274,79 @@ export class BumperQuestEngine {
   }
 
   private updateNeedleArm(dt: number) {
-    const isSuper = this.balls.length > 4;
     const arm = this.needleArm;
-    const time = performance.now() * 0.001;
 
-    // Transition into Super Flipper mode
-    if (isSuper && !arm.isSuperActive) {
-      arm.isSuperActive = true;
-      soundSynth.playSuperNeedleActivate();
-      arm.chargeGlow = 1.0;
+    // Smooth turntable radius transition between 12" LP (112px) and 45 RPM single (76px)
+    this.turntable.radius += (this.turntable.targetRadius - this.turntable.radius) * Math.min(1, dt * 3.5);
+
+    // Tonearm automatic extension cycle (every ~26 seconds, extends for 11 seconds!)
+    arm.cycleTimer = (arm.cycleTimer ?? 24.0) - dt;
+    if (arm.cycleTimer <= 0) {
+      arm.cycleTimer = 26.0;
+    }
+
+    const shouldExtend = arm.cycleTimer <= 11.0;
+
+    if (!arm.isExtended && shouldExtend) {
+      // Tonearm EXTENDS onto record: record switches to compact 45 RPM single!
+      arm.isExtended = true;
+      arm.targetAngle = arm.extendedAngle;
+      this.turntable.targetRadius = this.turntable.compact45Radius; // 76px compact bumper
+      this.turntable.is45RPM = true;
+      soundSynth.playTurntableScratch(1.4);
+
       this.shockwaves.push({
-        x: arm.pivotX,
-        y: arm.pivotY,
-        radius: 12,
-        maxRadius: 85,
+        x: this.turntable.x,
+        y: this.turntable.y,
+        radius: 76,
+        maxRadius: 160,
         color: '#ffea00',
         alpha: 1.0,
       });
+      this.addSparks(this.turntable.x, this.turntable.y, '#ffea00', 20);
+
       this.notices.push({
-        text: '⚡ NEEDLE SUPER FLIPPER ONLINE! ⚡',
-        x: this.width / 2,
-        y: this.height * 0.28,
+        text: '⚡ 45 RPM SINGLE! (COMPACT BUMPER) ⚡',
+        x: this.turntable.x,
+        y: this.turntable.y - 88,
         vy: -0.4,
         life: 0,
-        maxLife: 75,
+        maxLife: 80,
         color: '#ffea00',
       });
-    } else if (!isSuper && arm.isSuperActive) {
-      arm.isSuperActive = false;
-      arm.targetAngle = arm.baseAngle;
+    } else if (arm.isExtended && !shouldExtend) {
+      // Tonearm RETRACTS safely to rest cradle: record expands back to 12" LP!
+      arm.isExtended = false;
+      arm.targetAngle = arm.parkedAngle;
+      this.turntable.targetRadius = this.turntable.baseLPRadius; // 112px standard LP bumper
+      this.turntable.is45RPM = false;
+      soundSynth.playTurntableScratch(0.9);
+
+      this.shockwaves.push({
+        x: this.turntable.x,
+        y: this.turntable.y,
+        radius: 112,
+        maxRadius: 200,
+        color: '#00f3ff',
+        alpha: 1.0,
+      });
+
+      this.notices.push({
+        text: '⚡ 12" LP 33 RPM! (FULL-SIZE BUMPER) ⚡',
+        x: this.turntable.x,
+        y: this.turntable.y - 126,
+        vy: -0.4,
+        life: 0,
+        maxLife: 80,
+        color: '#00f3ff',
+      });
     }
 
-    if (arm.isSuperActive) {
-      arm.chargeGlow = Math.min(1.0, Math.max(0.4, 0.7 + 0.3 * Math.sin(time * 12)));
+    // Smooth spring movement toward targetAngle
+    const angleDelta = arm.targetAngle - arm.currentAngle;
+    arm.currentAngle += angleDelta * Math.min(1, dt * 7.5);
 
-      // Auto-tracking proximity whip: detect approaching balls
-      for (const b of this.balls) {
-        const dx = b.x - arm.pivotX;
-        const dy = b.y - arm.pivotY;
-        const dist = Math.hypot(dx, dy);
-
-        if (dist > 12 && dist < arm.length + 34) {
-          const ballAngle = Math.atan2(dy, dx);
-          let angleDiff = ballAngle - arm.baseAngle;
-          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-
-          if (angleDiff > -1.15 && angleDiff < 0.35) {
-            this.triggerNeedleFlipper();
-            break;
-          }
-        }
-      }
-
-      if (arm.isFlipping) {
-        arm.flipTimer -= dt;
-        if (arm.flipTimer <= 0) {
-          arm.isFlipping = false;
-          arm.targetAngle = arm.baseAngle;
-        }
-      }
-
-      // High-speed spring rotation
-      const diff = arm.targetAngle - arm.currentAngle;
-      arm.currentAngle += diff * Math.min(1, dt * 34);
-    } else {
-      // Gentle micro-groove vibration tracking the vinyl
-      arm.targetAngle = arm.baseAngle + Math.sin(time * 3.5) * 0.012;
-      arm.currentAngle += (arm.targetAngle - arm.currentAngle) * Math.min(1, dt * 12);
-      arm.chargeGlow = Math.max(0, arm.chargeGlow - dt * 2);
-    }
-
+    arm.chargeGlow = Math.max(0, arm.chargeGlow - dt * 2);
     arm.hitGlow = Math.max(0, arm.hitGlow - dt * 2.5);
   }
 
@@ -1118,42 +1360,107 @@ export class BumperQuestEngine {
   }
 
   private updateTopCornerGadgets(dt: number) {
-    // Slicer
+    // Slicer rotation & cooldown
     this.slicer.angle += dt * 6.5;
     this.slicer.cooldownTimer = Math.max(0, this.slicer.cooldownTimer - dt);
     this.slicer.activeGlow = Math.max(0, this.slicer.activeGlow - dt * 2.2);
 
-    // Stasis Chamber
+    // Slicer 30-second engagement cycle: 25 seconds charging, 5 seconds active!
+    this.slicer.cycleTimer = (this.slicer.cycleTimer ?? 25.0) - dt;
+    if (this.slicer.cycleTimer <= 0) {
+      this.slicer.cycleTimer = 30.0;
+    }
+    const isNowEngaged = this.slicer.cycleTimer <= 5.0;
+    if (!this.slicer.isEngaged && isNowEngaged) {
+      soundSynth.playLaserSlice();
+      this.slicer.activeGlow = 1.0;
+      this.notices.push({
+        text: '⚡ SLICER ACTIVE! (5s) ⚡',
+        x: this.slicer.x + 40,
+        y: this.slicer.y + 30,
+        vy: 0.3,
+        life: 0,
+        maxLife: 65,
+        color: '#00f3ff',
+      });
+    }
+    this.slicer.isEngaged = isNowEngaged;
+
+    // Stasis Chamber rotation & glow
     this.stasisChamber.rotation += dt * 2.5;
     this.stasisChamber.activeGlow = Math.max(0, this.stasisChamber.activeGlow - dt * 1.5);
 
-    if (this.stasisChamber.capturedBall) {
-      const cb = this.stasisChamber.capturedBall;
-      cb.timer -= dt;
-      cb.orbitAngle += dt * 5.0;
+    // Update all captured balls in stasis chamber
+    if (!this.stasisChamber.capturedBalls) {
+      this.stasisChamber.capturedBalls = [];
+    }
 
-      // When 15 seconds expire -> Release the ball!
+    for (let i = this.stasisChamber.capturedBalls.length - 1; i >= 0; i--) {
+      const cb = this.stasisChamber.capturedBalls[i];
+      cb.timer -= dt;
+      cb.orbitAngle += dt * (cb.orbitSpeed || 4.0);
+
+      // When 15 seconds expire -> Release and shoot deliberately towards the record player!
       if (cb.timer <= 0) {
-        // High-velocity ejection into arena
-        const launchAngle = Math.PI * 0.65 + (Math.random() - 0.5) * 0.35;
-        const launchSpeed = 16.5;
+        const dx = this.turntable.x - this.stasisChamber.x;
+        const dy = this.turntable.y - this.stasisChamber.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        const shootSpeed = 19.5;
+        const dirX = dx / dist;
+        const dirY = dy / dist;
+
+        // Spawn safely outside the chamber radius towards the center turntable
+        const spawnDist = this.stasisChamber.radius + cb.radius + 14;
+        const spawnX = this.stasisChamber.x + dirX * spawnDist;
+        const spawnY = this.stasisChamber.y + dirY * spawnDist;
+
         this.balls.push({
           id: cb.id,
-          x: this.stasisChamber.x,
-          y: this.stasisChamber.y,
-          vx: Math.cos(launchAngle) * launchSpeed,
-          vy: Math.sin(launchAngle) * launchSpeed,
+          x: spawnX,
+          y: spawnY,
+          vx: dirX * shootSpeed,
+          vy: dirY * shootSpeed,
           radius: cb.radius,
           color: cb.color,
           trail: [],
           lastBounceTime: 0,
           visitedFlippers: new Set(),
           visitedMultipliers: new Set(),
+          stasisImmunity: 3.5, // 3.5s immunity so nearby bumpers cannot push it right back in!
         });
 
-        this.stasisChamber.capturedBall = null;
+        this.stasisChamber.capturedBalls.splice(i, 1);
         this.stasisChamber.activeGlow = 1.0;
         soundSynth.playStasisRelease();
+
+        // When imprisoned ball is released, courtesy ball EXPLODES!
+        for (let bIdx = this.balls.length - 1; bIdx >= 0; bIdx--) {
+          const b = this.balls[bIdx];
+          if (b.isCourtesyBall) {
+            this.addSparks(b.x, b.y, '#ffea00', 32);
+            this.addSparks(b.x, b.y, '#ff0055', 24);
+            this.addSparks(b.x, b.y, '#ffffff', 20);
+            this.shockwaves.push({
+              x: b.x,
+              y: b.y,
+              radius: 12,
+              maxRadius: 130,
+              color: '#ffea00',
+              alpha: 1.0,
+            });
+            soundSynth.playLaserSlice();
+            this.notices.push({
+              text: '💥 COURTESY BALL EXPLODED! lol',
+              x: b.x - 75,
+              y: b.y - 25,
+              vy: -0.4,
+              life: 0,
+              maxLife: 90,
+              color: '#ffea00',
+            });
+            this.balls.splice(bIdx, 1);
+          }
+        }
 
         this.shockwaves.push({
           x: this.stasisChamber.x,
@@ -1167,8 +1474,8 @@ export class BumperQuestEngine {
         this.addSparks(this.stasisChamber.x, this.stasisChamber.y, '#00f3ff', 18);
 
         this.notices.push({
-          text: '⚡ STASIS 15s RELEASE! ⚡',
-          x: this.stasisChamber.x - 50,
+          text: '⚡ RECORD PLAYER HYPER-LAUNCH! ⚡',
+          x: this.stasisChamber.x - 70,
           y: this.stasisChamber.y + 35,
           vy: 0.3,
           life: 0,
@@ -1194,6 +1501,11 @@ export class BumperQuestEngine {
       // Apply gravity
       ball.vx += totalGx;
       ball.vy += totalGy;
+
+      // Decrement stasis immunity
+      if (ball.stasisImmunity && ball.stasisImmunity > 0) {
+        ball.stasisImmunity -= dt;
+      }
 
       // Friction / air resistance
       ball.vx *= 0.998;
@@ -1343,8 +1655,10 @@ export class BumperQuestEngine {
 
           this.balls.splice(bIdx, 1);
 
-          if (this.balls.length === 0 && !this.stasisChamber.capturedBall) {
+          if (this.balls.length === 0 && (!this.stasisChamber.capturedBalls || this.stasisChamber.capturedBalls.length === 0)) {
             this.triggerGameOver();
+          } else if (this.balls.length === 0 && this.stasisChamber.capturedBalls && this.stasisChamber.capturedBalls.length > 0) {
+            this.spawnCourtesyBall();
           }
           continue;
         }
@@ -1403,8 +1717,10 @@ export class BumperQuestEngine {
 
           this.balls.splice(bIdx, 1);
 
-          if (this.balls.length === 0 && !this.stasisChamber.capturedBall) {
+          if (this.balls.length === 0 && (!this.stasisChamber.capturedBalls || this.stasisChamber.capturedBalls.length === 0)) {
             this.triggerGameOver();
+          } else if (this.balls.length === 0 && this.stasisChamber.capturedBalls && this.stasisChamber.capturedBalls.length > 0) {
+            this.spawnCourtesyBall();
           }
           continue;
         }
@@ -1450,6 +1766,37 @@ export class BumperQuestEngine {
       const dy = ball.y - cy;
       const distCenter = Math.hypot(dx, dy);
 
+      // Check if ball penetrated into the inner disc circle / spindle
+      if (distCenter < rTurntable - 6) {
+        // BALL DISINTEGRATES! Eliminates unpleasant screeching noise loop completely
+        this.addSparks(ball.x, ball.y, '#ff0055', 30);
+        this.addSparks(ball.x, ball.y, '#00f3ff', 24);
+        this.addSparks(ball.x, ball.y, '#ffea00', 16);
+        this.shockwaves.push({
+          x: ball.x,
+          y: ball.y,
+          radius: 12,
+          maxRadius: 80,
+          color: '#ff0055',
+          alpha: 1.0,
+        });
+        soundSynth.playLaserSlice();
+        this.notices.push({
+          text: '⚡ VINYL DISINTEGRATED! ⚡',
+          x: ball.x - 55,
+          y: ball.y,
+          vy: -0.4,
+          life: 0,
+          maxLife: 60,
+          color: '#ff0055',
+        });
+        this.balls.splice(bIdx, 1);
+        if (this.balls.length === 0 && (!this.stasisChamber.capturedBalls || this.stasisChamber.capturedBalls.length === 0)) {
+          this.spawnBall();
+        }
+        continue;
+      }
+
       if (distCenter < rTurntable + ball.radius) {
         // Collision with turntable outer rim
         const nx = dx / distCenter;
@@ -1492,87 +1839,23 @@ export class BumperQuestEngine {
 
         this.addSparks(ball.x, ball.y, '#00f3ff', 12);
 
-        // Turntable scratch impact occasionally seeds rhythmic vinyl dots!
-        if (Math.random() < 0.28) {
-          this.seedDots(3, 'vinyl', cx, cy);
+        // Controlled dot density: only seed 1 dot on rare scratches if dots are sparse
+        if (Math.random() < 0.10 && this.dotsRemaining < 20) {
+          this.seedDots(1, 'vinyl', cx, cy);
           this.notices.push({
-            text: 'VINYL GROOVE +3 DOTS',
+            text: 'VINYL GROOVE +1 DOT',
             x: cx,
             y: cy - rTurntable - 15,
             vy: -0.4,
             life: 0,
-            maxLife: 60,
+            maxLife: 55,
             color: '#00f3ff',
           });
         }
       }
 
-      // 2.5. Secret Needle Super Flipper Collision
-      {
-        const arm = this.needleArm;
-        const tipX = arm.pivotX + Math.cos(arm.currentAngle) * arm.length;
-        const tipY = arm.pivotY + Math.sin(arm.currentAngle) * arm.length;
-
-        const seg = this.distToSegment(ball.x, ball.y, arm.pivotX, arm.pivotY, tipX, tipY);
-        const contactRadius = arm.isSuperActive ? ball.radius + 12 : ball.radius + 7;
-
-        if (seg.distance < contactRadius) {
-          const cnx = (ball.x - seg.closestX) / (seg.distance || 1);
-          const cny = (ball.y - seg.closestY) / (seg.distance || 1);
-
-          if (arm.isSuperActive) {
-            // ★ SUPER NEEDLE FLIPPER HIT! ★
-            const sweepNormX = -Math.sin(arm.currentAngle);
-            const sweepNormY = Math.cos(arm.currentAngle);
-
-            const kickSpeed = Math.max(18, Math.hypot(ball.vx, ball.vy) * 1.6 + (arm.isFlipping ? 8 : 4));
-            // Launch ball radically away from the arm and up into the arena!
-            ball.vx = sweepNormX * kickSpeed + (Math.random() - 0.5) * 4;
-            ball.vy = sweepNormY * kickSpeed - 4;
-
-            // Push ball cleanly out of collision zone
-            ball.x = seg.closestX + cnx * (contactRadius + 5);
-            ball.y = seg.closestY + cny * (contactRadius + 5);
-
-            arm.hitGlow = 1.0;
-            arm.chargeGlow = 1.0;
-            soundSynth.playSuperNeedleFlip();
-
-            this.totalBumps++;
-            this.score += 500 * this.currentMultiplier;
-
-            this.addSparks(ball.x, ball.y, '#ffea00', 20);
-            this.addSparks(ball.x, ball.y, '#00f3ff', 16);
-            this.shockwaves.push({
-              x: tipX,
-              y: tipY,
-              radius: 10,
-              maxRadius: 85,
-              color: '#ffea00',
-              alpha: 1.0,
-            });
-
-            this.notices.push({
-              text: '★ SUPER NEEDLE FLIP! ★',
-              x: seg.closestX - 25,
-              y: seg.closestY - 25,
-              vy: -0.4,
-              life: 0,
-              maxLife: 60,
-              color: '#ffea00',
-            });
-          } else {
-            // Gentle physical bounce when needle is idling on the record
-            ball.vx = (ball.vx * 0.4 + cnx * 6) * this.restitution;
-            ball.vy = (ball.vy * 0.4 + cny * 6) * this.restitution;
-            ball.x = seg.closestX + cnx * (contactRadius + 2);
-            ball.y = seg.closestY + cny * (contactRadius + 2);
-
-            this.addSparks(ball.x, ball.y, '#ffffff', 4);
-            soundSynth.playBumperChime(0);
-          }
-        }
-      }
+      // Note: Needle tonearm hangs safely overhead on its elevated gimbal, so balls roll
+      // freely underneath without ever getting trapped or pinched against the record!
 
       // 3. Tempest Spider Guardian Collision
       const spiderX = cx + Math.cos(this.spider.angle) * this.spider.orbitRadius;
@@ -1594,17 +1877,19 @@ export class BumperQuestEngine {
         this.score += 350 * this.currentMultiplier;
         this.addSparks(ball.x, ball.y, '#ff0055', 14);
 
-        // Spider Guardian weaves glowing silk dots in its wake!
-        this.seedDots(3, 'spider', spiderX, spiderY);
-        this.notices.push({
-          text: 'SPIDER WEAVE +3 DOTS',
-          x: spiderX,
-          y: spiderY - 20,
-          vy: -0.4,
-          life: 0,
-          maxLife: 60,
-          color: '#ff00aa',
-        });
+        // Spider Guardian weaves glowing silk dots in its wake (capped for clean gameplay)
+        if (this.dotsRemaining < 20) {
+          this.seedDots(1, 'spider', spiderX, spiderY);
+          this.notices.push({
+            text: 'SPIDER WEAVE +1 DOT',
+            x: spiderX,
+            y: spiderY - 20,
+            vy: -0.4,
+            life: 0,
+            maxLife: 55,
+            color: '#ff00aa',
+          });
+        }
       }
 
       // 4. Moving Geometric Hazards Collisions
@@ -1647,24 +1932,36 @@ export class BumperQuestEngine {
         }
       }
 
-      // 5. Electric Fence Collisions
+      // 5. Dynamic Moving Bumpers (Above and Below the Record)
       for (const f of this.fences) {
-        if (!f.active) continue;
-
         // Line-segment to circle distance
         const lineDist = this.distToSegment(ball.x, ball.y, f.x1, f.y1, f.x2, f.y2);
-        if (lineDist.distance < ball.radius + 6) {
-          // Repel violently
+        if (lineDist.distance < ball.radius + 8) {
+          // Repel with lively pinball bumper impulse
           const nx = (ball.x - lineDist.closestX) / (lineDist.distance || 1);
           const ny = (ball.y - lineDist.closestY) / (lineDist.distance || 1);
 
-          ball.vx = nx * 10 + (Math.random() - 0.5) * 6;
-          ball.vy = ny * 10 + (Math.random() - 0.5) * 6;
+          const dot = ball.vx * nx + ball.vy * ny;
+          const bounceForce = 1.25;
+          ball.vx = (ball.vx - 2 * dot * nx) * bounceForce + nx * 2.5;
+          ball.vy = (ball.vy - 2 * dot * ny) * bounceForce + ny * 2.5;
 
-          soundSynth.playElectricFenceZap();
+          ball.x = lineDist.closestX + nx * (ball.radius + 9);
+          ball.y = lineDist.closestY + ny * (ball.radius + 9);
+
+          f.hitGlow = 1.0;
+          soundSynth.playElasticBumperSnap();
           this.totalBumps++;
-          this.score += 150 * this.currentMultiplier;
-          this.addSparks(ball.x, ball.y, '#ffff00', 10);
+          this.score += 250 * this.currentMultiplier;
+          this.addSparks(ball.x, ball.y, f.color, 12);
+          this.shockwaves.push({
+            x: lineDist.closestX,
+            y: lineDist.closestY,
+            radius: 8,
+            maxRadius: 75,
+            color: f.color,
+            alpha: 1.0,
+          });
         }
       }
 
@@ -1728,89 +2025,128 @@ export class BumperQuestEngine {
         }
       }
 
-      // 5.6. Top-Left Laser Slicer (Cuts a ball into twins!)
+      // 5.6. Top-Left Laser Slicer (Engages for 5 seconds every 30 seconds!)
       {
         const s = this.slicer;
         const sdx = ball.x - s.x;
         const sdy = ball.y - s.y;
         const sDist = Math.hypot(sdx, sdy);
 
-        if (sDist < s.radius + ball.radius && s.cooldownTimer <= 0) {
-          s.cooldownTimer = 1.2;
-          s.activeGlow = 1.0;
-          s.sliceCount++;
+        if (sDist < s.radius + ball.radius) {
+          const snx = sdx / (sDist || 1);
+          const sny = sdy / (sDist || 1);
 
-          soundSynth.playLaserSlice();
-          this.totalBumps++;
-          this.score += 750 * this.currentMultiplier;
+          if (s.isEngaged && s.cooldownTimer <= 0) {
+            // Slicer is actively ENGAGED (5-second window): Slices ball into twins!
+            s.cooldownTimer = 1.2;
+            s.activeGlow = 1.0;
+            s.sliceCount++;
 
-          this.shockwaves.push({
-            x: s.x,
-            y: s.y,
-            radius: 10,
-            maxRadius: 75,
-            color: '#00f3ff',
-            alpha: 1.0,
-          });
-          this.addSparks(s.x, s.y, '#00f3ff', 18);
-          this.addSparks(s.x, s.y, '#ff0055', 18);
+            soundSynth.playLaserSlice();
+            this.totalBumps++;
+            this.score += 750 * this.currentMultiplier;
 
-          // Deflect original ball out downward-left
-          const origSpeed = Math.max(9, Math.hypot(ball.vx, ball.vy));
-          ball.vx = -Math.abs(ball.vx * 0.8) - 4;
-          ball.vy = Math.abs(ball.vy * 0.8) + 4;
-          ball.radius = Math.max(6.5, ball.radius * 0.82); // Sliced slightly sleeker
-          ball.x = s.x + 14;
-          ball.y = s.y + 14;
-
-          // Spawn the twin sliced half!
-          if (this.balls.length < 12) {
-            const twinAngle = 0.58 + (Math.random() - 0.5) * 0.3; // Launch down-right
-            this.balls.push({
-              id: Date.now() + Math.random(),
-              x: s.x + 18,
-              y: s.y + 18,
-              vx: Math.cos(twinAngle) * (origSpeed * 1.1 + 3),
-              vy: Math.sin(twinAngle) * (origSpeed * 1.1 + 3),
-              radius: ball.radius,
-              color: '#ff00aa',
-              trail: [],
-              lastBounceTime: 0,
-              visitedFlippers: new Set(),
-              visitedMultipliers: new Set(),
+            this.shockwaves.push({
+              x: s.x,
+              y: s.y,
+              radius: 10,
+              maxRadius: 75,
+              color: '#00f3ff',
+              alpha: 1.0,
             });
-          }
+            this.addSparks(s.x, s.y, '#00f3ff', 18);
+            this.addSparks(s.x, s.y, '#ff0055', 18);
 
-          this.notices.push({
-            text: '⚔️ BALL SLICED IN HALF! x2',
-            x: s.x + 40,
-            y: s.y + 30,
-            vy: 0.3,
-            life: 0,
-            maxLife: 65,
-            color: '#00f3ff',
-          });
+            // Deflect original ball out downward-left
+            const origSpeed = Math.max(9, Math.hypot(ball.vx, ball.vy));
+            ball.vx = -Math.abs(ball.vx * 0.8) - 4;
+            ball.vy = Math.abs(ball.vy * 0.8) + 4;
+            ball.radius = Math.max(6.5, ball.radius * 0.82); // Sliced slightly sleeker
+            ball.x = s.x + 14;
+            ball.y = s.y + 14;
+
+            // Spawn the twin sliced half! (Capped to prevent chaotic ball flooding)
+            if (this.balls.length < 8) {
+              const twinAngle = 0.58 + (Math.random() - 0.5) * 0.3; // Launch down-right
+              this.balls.push({
+                id: Date.now() + Math.random(),
+                x: s.x + 18,
+                y: s.y + 18,
+                vx: Math.cos(twinAngle) * (origSpeed * 1.1 + 3),
+                vy: Math.sin(twinAngle) * (origSpeed * 1.1 + 3),
+                radius: ball.radius,
+                color: '#ff00aa',
+                trail: [],
+                lastBounceTime: 0,
+                visitedFlippers: new Set(),
+                visitedMultipliers: new Set(),
+              });
+            }
+
+            this.notices.push({
+              text: '⚔️ BALL SLICED IN HALF! x2',
+              x: s.x + 40,
+              y: s.y + 30,
+              vy: 0.3,
+              life: 0,
+              maxLife: 65,
+              color: '#00f3ff',
+            });
+          } else if (!s.isEngaged) {
+            // Slicer is in 25-second charging cycle: acts as resilient corner rubber bumper!
+            ball.x = s.x + snx * (s.radius + ball.radius + 2);
+            const dot = ball.vx * snx + ball.vy * sny;
+            const bounceForce = 1.12;
+            ball.vx = (ball.vx - 2 * dot * snx) * bounceForce;
+            ball.vy = (ball.vy - 2 * dot * sny) * bounceForce;
+
+            s.activeGlow = 0.4;
+            soundSynth.playPinwheelRicochet();
+            this.totalBumps++;
+            this.score += 100 * this.currentMultiplier;
+            this.addSparks(ball.x, ball.y, '#00f3ff', 6);
+          }
         }
       }
 
-      // 5.7. Top-Right Stasis Capture Chamber (Captures ball for 15s then releases!)
+      // 5.7. Top-Right Stasis Capture Chamber (Captures multiple balls for 15s each, shoots to record player!)
       {
         const sc = this.stasisChamber;
-        if (!sc.capturedBall) {
+        if (!sc.capturedBalls) sc.capturedBalls = [];
+
+        // Courtesy ball deflects off stasis chamber like a resilient bumper
+        if (ball.isCourtesyBall) {
+          const cdx = ball.x - sc.x;
+          const cdy = ball.y - sc.y;
+          const cDist = Math.hypot(cdx, cdy);
+          if (cDist < sc.radius + ball.radius) {
+            const cnx = cdx / (cDist || 1);
+            const cny = cdy / (cDist || 1);
+            ball.x = sc.x + cnx * (sc.radius + ball.radius + 2);
+            const dot = ball.vx * cnx + ball.vy * cny;
+            ball.vx = (ball.vx - 2 * dot * cnx) * 1.15;
+            ball.vy = (ball.vy - 2 * dot * cny) * 1.15;
+            sc.activeGlow = 0.6;
+            soundSynth.playPinwheelRicochet();
+          }
+        } else if ((ball.stasisImmunity || 0) <= 0) {
           const cdx = ball.x - sc.x;
           const cdy = ball.y - sc.y;
           const cDist = Math.hypot(cdx, cdy);
 
           if (cDist < sc.radius + ball.radius) {
             // Trap the ball in stasis for 15 seconds!
-            sc.capturedBall = {
+            const trappedCount = sc.capturedBalls.length + 1;
+            sc.capturedBalls.push({
               id: ball.id,
               color: ball.color,
               radius: ball.radius,
               timer: 15.0,
               maxTimer: 15.0,
-              orbitAngle: 0,
-            };
+              orbitAngle: (trappedCount * Math.PI * 2) / Math.max(1, trappedCount),
+              orbitRadius: 7 + (trappedCount % 3) * 4,
+              orbitSpeed: 3.5 + Math.random() * 2,
+            });
             sc.activeGlow = 1.0;
             soundSynth.playStasisCapture();
 
@@ -1826,8 +2162,8 @@ export class BumperQuestEngine {
             this.addSparks(sc.x, sc.y, '#ffffff', 10);
 
             this.notices.push({
-              text: '🔒 CAPTURED! (15 SECONDS)',
-              x: sc.x - 55,
+              text: trappedCount > 1 ? `🔒 STASIS CAPTURE (${trappedCount} BALLS)` : '🔒 CAPTURED! (15 SECONDS)',
+              x: sc.x - 70,
               y: sc.y + 30,
               vy: 0.3,
               life: 0,
@@ -1838,8 +2174,10 @@ export class BumperQuestEngine {
             // Remove captured ball from active playfield balls
             this.balls.splice(bIdx, 1);
 
-            // Game over only if no balls left AND no ball in stasis!
-            if (this.balls.length === 0 && !this.stasisChamber.capturedBall) {
+            // If ALL active balls are now captured, dispatch a courtesy ball to keep gameplay going!
+            if (this.balls.length === 0 && sc.capturedBalls.length > 0) {
+              this.spawnCourtesyBall();
+            } else if (this.balls.length === 0 && sc.capturedBalls.length === 0) {
               this.triggerGameOver();
             }
             continue;
@@ -1950,59 +2288,82 @@ export class BumperQuestEngine {
 
   /**
    * Dynamically seeds fresh dots onto the table (Spider web weave, turntable scratch groove, or matrix supernova)
+   * Strictly caps dot density (max 24 active dots, 42px min spacing) so dots NEVER form a mass or glob!
    */
   public seedDots(count: number, source: 'spider' | 'vinyl' | 'matrix', originX?: number, originY?: number) {
     if (this.gameState !== 'playing') return;
+
+    // Hard ceiling on active uncollected dots (never allows a mass or glob)
+    const MAX_ACTIVE_DOTS = 24;
+    if (this.dotsRemaining >= MAX_ACTIVE_DOTS) return;
+
     const cx = originX ?? this.width / 2;
     const cy = originY ?? this.height / 2;
     const rOuter = Math.min(this.width, this.height) * 0.38;
-    const rInner = this.turntable.radius + 30;
+    const rInner = this.turntable.baseLPRadius + 42;
 
     let added = 0;
+    const maxAttempts = 16;
+
     for (let i = 0; i < count; i++) {
-      let dx: number;
-      let dy: number;
-      let dotColor = '#00ff66';
+      if (this.dotsRemaining + added >= MAX_ACTIVE_DOTS) break;
 
-      if (source === 'spider') {
-        const a = this.spider.angle + (Math.random() - 0.5) * 0.8;
-        const dist = this.spider.orbitRadius + (Math.random() - 0.5) * 30;
-        dx = this.turntable.x + Math.cos(a) * dist;
-        dy = this.turntable.y + Math.sin(a) * dist;
-        dotColor = '#ff00aa'; // Magenta spider silk dot
-      } else if (source === 'vinyl') {
-        const a = Math.random() * Math.PI * 2;
-        const dist = this.turntable.radius + 18 + Math.random() * 32;
-        dx = cx + Math.cos(a) * dist;
-        dy = cy + Math.sin(a) * dist;
-        dotColor = '#00f3ff'; // Cyan vinyl groove dot
-      } else {
-        const a = (i / count) * Math.PI * 2;
-        const dist = rInner + (rOuter - rInner) * (0.25 + Math.random() * 0.7);
-        dx = cx + Math.cos(a) * dist;
-        dy = cy + Math.sin(a) * dist;
-        dotColor = '#ffea00'; // Golden matrix supernova dot
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        let dx: number;
+        let dy: number;
+        let dotColor = '#00ff66';
+
+        if (source === 'spider') {
+          const a = this.spider.angle + (Math.random() - 0.5) * 0.8;
+          const dist = this.spider.orbitRadius + (Math.random() - 0.5) * 20;
+          dx = this.turntable.x + Math.cos(a) * dist;
+          dy = this.turntable.y + Math.sin(a) * dist;
+          dotColor = '#ff00aa'; // Magenta spider silk dot
+        } else if (source === 'vinyl') {
+          const a = Math.random() * Math.PI * 2;
+          const dist = this.turntable.radius + 36 + Math.random() * 24;
+          dx = cx + Math.cos(a) * dist;
+          dy = cy + Math.sin(a) * dist;
+          dotColor = '#00f3ff'; // Cyan vinyl groove dot
+        } else {
+          const a = (i / count) * Math.PI * 2;
+          const dist = rInner + (rOuter - rInner) * (0.35 + Math.random() * 0.55);
+          dx = cx + Math.cos(a) * dist;
+          dy = cy + Math.sin(a) * dist;
+          dotColor = '#ffea00'; // Golden matrix supernova dot
+        }
+
+        dx = Math.max(38, Math.min(this.width - 38, dx));
+        dy = Math.max(38, Math.min(this.height - 48, dy));
+
+        // Spatial density constraint: do not place dot within 42px of any existing uncollected dot!
+        const tooClose = this.dots.some(d => !d.collected && Math.hypot(d.x - dx, d.y - dy) < 42);
+        if (tooClose) continue;
+
+        // Keep dots safely outside the vinyl disc perimeter
+        const distCenter = Math.hypot(dx - cx, dy - cy);
+        if (distCenter < this.turntable.baseLPRadius + 36) continue;
+
+        this.dots.push({
+          x: dx,
+          y: dy,
+          radius: source === 'matrix' ? 3.5 : 3.0,
+          collected: false,
+          respawnTime: 0,
+          color: dotColor,
+          isBonus: true,
+        });
+        added++;
+        break;
       }
-
-      dx = Math.max(28, Math.min(this.width - 28, dx));
-      dy = Math.max(28, Math.min(this.height - 40, dy));
-
-      this.dots.push({
-        x: dx,
-        y: dy,
-        radius: source === 'matrix' ? 4.5 : 3.5,
-        collected: false,
-        respawnTime: 0,
-        color: dotColor,
-        isBonus: true,
-      });
-      added++;
     }
 
-    this.dotsTotal += added;
-    this.dotsRemaining += added;
-    soundSynth.playDotSpawnChime();
-    this.onDotsUpdate?.(this.dotsRemaining, this.dotsTotal);
+    if (added > 0) {
+      this.dotsTotal += added;
+      this.dotsRemaining += added;
+      soundSynth.playDotSpawnChime();
+      this.onDotsUpdate?.(this.dotsRemaining, this.dotsTotal);
+    }
   }
 
   /**
@@ -2423,53 +2784,165 @@ export class BumperQuestEngine {
     for (const dot of this.dots) {
       if (dot.collected) continue;
       const dotColor = dot.color || '#00ff66';
+      
+      // Crisp retro-arcade constellation dot node
       ctx.fillStyle = dotColor;
       ctx.beginPath();
-      ctx.arc(dot.x, dot.y, dot.radius, 0, Math.PI * 2);
+      ctx.arc(dot.x, dot.y, 3.0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Soft glow
-      ctx.fillStyle = dot.isBonus ? `${dotColor}55` : 'rgba(0, 255, 102, 0.25)';
+      // Thin crisp outer vector halo ring (never a foggy blurry glob)
+      ctx.strokeStyle = dot.isBonus ? `${dotColor}88` : 'rgba(0, 255, 102, 0.4)';
+      ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.arc(dot.x, dot.y, dot.radius * 2, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.arc(dot.x, dot.y, 4.8, 0, Math.PI * 2);
+      ctx.stroke();
     }
   }
 
   private drawElectricFences(ctx: CanvasRenderingContext2D) {
-    for (const f of this.fences) {
-      if (!f.active) {
-        // Inactive wireframe placeholder
-        ctx.strokeStyle = 'rgba(100, 116, 139, 0.25)';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
+    const time = performance.now() * 0.001;
+
+    for (let i = 0; i < this.fences.length; i++) {
+      const f = this.fences[i];
+      const isTop = i === 0;
+
+      const baseX = f.baseX ?? (this.width / 2);
+      const baseY = f.baseY ?? (isTop ? this.height / 2 - 145 : this.height / 2 + 145);
+
+      // Vertical excursion range: top bumper extends upward toward top drain; bottom extends downward toward bottom drain
+      const vertMax = 44;
+      const trackTop = isTop ? baseY - vertMax : baseY - 6;
+      const trackBot = isTop ? baseY + 6 : baseY + vertMax;
+
+      ctx.save();
+
+      // 1. Horizontal Traverse Guide Rail (showing side-to-side travel capability)
+      const travLeft = baseX - 110;
+      const travRight = baseX + 110;
+      ctx.strokeStyle = 'rgba(100, 116, 139, 0.28)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(travLeft, baseY);
+      ctx.lineTo(travRight, baseY);
+      ctx.stroke();
+
+      // Horizontal calibration stops
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(travLeft - 3, baseY - 4, 6, 8);
+      ctx.fillRect(travRight - 3, baseY - 4, 6, 8);
+
+      // 2. Vertical Telescoping Piston Guide Rails at f.x1 and f.x2
+      ctx.strokeStyle = 'rgba(100, 116, 139, 0.35)';
+      ctx.lineWidth = 1.8;
+      // Left vertical rail slot
+      ctx.beginPath();
+      ctx.moveTo(f.x1, trackTop);
+      ctx.lineTo(f.x1, trackBot);
+      ctx.stroke();
+      // Right vertical rail slot
+      ctx.beginPath();
+      ctx.moveTo(f.x2, trackTop);
+      ctx.lineTo(f.x2, trackBot);
+      ctx.stroke();
+
+      // Calibration tick marks along vertical rails
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.22)';
+      ctx.lineWidth = 1;
+      for (let y = Math.min(trackTop, trackBot); y <= Math.max(trackTop, trackBot); y += 8) {
         ctx.beginPath();
-        ctx.moveTo(f.x1, f.y1);
-        ctx.lineTo(f.x2, f.y2);
+        ctx.moveTo(f.x1 - 2.5, y);
+        ctx.lineTo(f.x1 + 2.5, y);
+        ctx.moveTo(f.x2 - 2.5, y);
+        ctx.lineTo(f.x2 + 2.5, y);
         ctx.stroke();
-        ctx.setLineDash([]);
-        continue;
       }
 
-      // Active glowing electrical arc
-      ctx.save();
-      ctx.strokeStyle = f.color;
-      ctx.lineWidth = 3;
-      ctx.shadowColor = f.color;
-      ctx.shadowBlur = 12;
+      // Mechanical guide stops at ends of vertical track
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(f.x1 - 3.5, trackTop - 2, 7, 4);
+      ctx.fillRect(f.x1 - 3.5, trackBot - 2, 7, 4);
+      ctx.fillRect(f.x2 - 3.5, trackTop - 2, 7, 4);
+      ctx.fillRect(f.x2 - 3.5, trackBot - 2, 7, 4);
 
-      // Jittering electric arc
-      const segments = 6;
+      // 3. Hydraulic servo actuator pistons (20% reduced size: radius 5.2)
+      const hitGlow = f.hitGlow || 0;
+      const pistonColor = hitGlow > 0 ? '#ffffff' : (f.isMoving ? '#ffea00' : f.color);
+
+      // Left piston head
+      ctx.fillStyle = '#0f172a';
+      ctx.strokeStyle = pistonColor;
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(f.x1, f.y1, 5.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Right piston head
+      ctx.beginPath();
+      ctx.arc(f.x2, f.y2, 5.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // 4. Solid Pinball Bumper Rebound Bar (20% reduced size: lineWidth 5)
+      ctx.strokeStyle = hitGlow > 0 ? '#ffffff' : f.color;
+      ctx.lineWidth = 5;
+      ctx.shadowColor = f.color;
+      ctx.shadowBlur = hitGlow > 0 ? 18 : 10;
       ctx.beginPath();
       ctx.moveTo(f.x1, f.y1);
-      for (let i = 1; i < segments; i++) {
-        const t = i / segments;
-        const jx = f.x1 + (f.x2 - f.x1) * t + (Math.random() - 0.5) * 8;
-        const jy = f.y1 + (f.y2 - f.y1) * t + (Math.random() - 0.5) * 8;
+      ctx.lineTo(f.x2, f.y2);
+      ctx.stroke();
+
+      // Hot inner energy core
+      ctx.strokeStyle = hitGlow > 0 ? '#ffffff' : 'rgba(255, 255, 255, 0.85)';
+      ctx.lineWidth = 1.8;
+      ctx.shadowBlur = 0;
+      ctx.beginPath();
+      ctx.moveTo(f.x1 + 3, f.y1);
+      ctx.lineTo(f.x2 - 3, f.y2);
+      ctx.stroke();
+
+      // Animated plasma micro-arcs across bumper face
+      ctx.strokeStyle = hitGlow > 0 ? '#ffffff' : f.color;
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      const segments = 5;
+      ctx.moveTo(f.x1, f.y1);
+      for (let s = 1; s < segments; s++) {
+        const frac = s / segments;
+        const jx = f.x1 + (f.x2 - f.x1) * frac;
+        const jy = f.y1 + Math.sin(time * 12 + s * 2) * 2.2;
         ctx.lineTo(jx, jy);
       }
       ctx.lineTo(f.x2, f.y2);
       ctx.stroke();
+
+      // 5. Center Illuminated Bumper Cap Pip (20% reduced: outer radius 6.4, inner 2.8)
+      const midX = (f.x1 + f.x2) * 0.5;
+      ctx.fillStyle = hitGlow > 0 ? '#ffffff' : '#0f172a';
+      ctx.strokeStyle = pistonColor;
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(midX, f.y1, 6.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = hitGlow > 0 ? '#000000' : pistonColor;
+      ctx.beginPath();
+      ctx.arc(midX, f.y1, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Active drain relief indicator arrows when extended
+      if (f.isMoving) {
+        ctx.font = '700 6px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = pistonColor;
+        ctx.shadowColor = pistonColor;
+        ctx.shadowBlur = 6;
+        const labelY = isTop ? f.y1 - 10 : f.y1 + 14;
+        ctx.fillText(isTop ? '▲ DRAIN RELIEF ▲' : '▼ DRAIN RELIEF ▼', midX, labelY);
+      }
 
       ctx.restore();
     }
@@ -2479,13 +2952,16 @@ export class BumperQuestEngine {
     const cx = this.turntable.x;
     const cy = this.turntable.y;
     const r = this.turntable.radius;
+    const is45 = this.turntable.is45RPM;
+    const labelR = r * (is45 ? 0.48 : 0.38);
 
+    // 1. ROTATING VINYL DISC (Spins dynamically at specified RPM)
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(this.turntable.angle);
 
-    // 1. Vinyl disc body (glossy black with micro-grooves)
-    ctx.fillStyle = '#0a0a10';
+    // Vinyl disc body (glossy vinyl black)
+    ctx.fillStyle = '#080811';
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
     ctx.fill();
@@ -2496,34 +2972,154 @@ export class BumperQuestEngine {
     ctx.shadowColor = this.turntable.color;
     ctx.shadowBlur = 15 + this.turntable.scratchGlow * 20;
     ctx.stroke();
-
-    // 2. Vinyl sound grooves (concentric micro-rings with light reflections)
     ctx.shadowBlur = 0;
-    const grooveCount = 7;
-    for (let i = 1; i <= grooveCount; i++) {
-      const gr = r * 0.42 + (r * 0.52 * (i / grooveCount));
-      ctx.strokeStyle = (i % 2 === 0) ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 243, 255, 0.08)';
-      ctx.lineWidth = 1;
+
+    // 1.1. Anisotropic Phonograph Light Sheen (Signature rotating bowtie reflection glare!)
+    // As the record spins, these specular sheen glare fans sweep across the grooves in real-time
+    const sheenAngles = [0, Math.PI, Math.PI * 0.5, Math.PI * 1.5];
+    for (let si = 0; si < sheenAngles.length; si++) {
+      const sa = sheenAngles[si];
+      const isPrimary = si < 2;
+      const spread = isPrimary ? 0.38 : 0.22;
+      const alpha = isPrimary ? 0.18 : 0.08;
+
+      ctx.save();
       ctx.beginPath();
-      ctx.arc(0, 0, gr, 0, Math.PI * 2);
+      ctx.moveTo(Math.cos(sa - spread) * labelR, Math.sin(sa - spread) * labelR);
+      ctx.arc(0, 0, r - 3, sa - spread, sa + spread);
+      ctx.lineTo(Math.cos(sa + spread) * labelR, Math.sin(sa + spread) * labelR);
+      ctx.closePath();
+
+      const sheenGrad = ctx.createRadialGradient(0, 0, labelR, 0, 0, r);
+      sheenGrad.addColorStop(0, `rgba(255, 255, 255, ${alpha * 0.4})`);
+      sheenGrad.addColorStop(0.5, `rgba(${isPrimary ? '255, 255, 255' : '0, 243, 255'}, ${alpha})`);
+      sheenGrad.addColorStop(1, `rgba(255, 255, 255, ${alpha * 0.1})`);
+      ctx.fillStyle = sheenGrad;
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 1.2. Continuous Archimedean Spiral Sound Grooves
+    // Spirals physically wind inward as the turntable rotates, creating unmistakable movement!
+    const trackCount = 3;
+    const bandSpan = (r - 8 - (labelR + 4)) / trackCount;
+
+    for (let band = 0; band < trackCount; band++) {
+      const bOuter = r - 8 - band * bandSpan;
+      const bInner = bOuter - bandSpan * 0.88;
+
+      // Dark ungrooved gap between songs ("band gap")
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.65)';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(0, 0, bOuter + 1, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Continuous spiral sound track
+      const turns = 4;
+      const totalPoints = turns * 36;
+      ctx.strokeStyle = (band % 2 === 0) ? 'rgba(255, 255, 255, 0.18)' : 'rgba(0, 243, 255, 0.14)';
+      ctx.lineWidth = 1.0;
+      ctx.beginPath();
+      for (let p = 0; p <= totalPoints; p++) {
+        const frac = p / totalPoints;
+        const theta = frac * Math.PI * 2 * turns;
+        const rad = bOuter - (bOuter - bInner) * frac;
+        const px = Math.cos(theta) * rad;
+        const py = Math.sin(theta) * rad;
+        if (p === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+
+      // Secondary interlaced micro-groove spiral
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.09)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      for (let p = 0; p <= totalPoints; p++) {
+        const frac = p / totalPoints;
+        const theta = frac * Math.PI * 2 * turns + Math.PI;
+        const rad = (bOuter - 1.5) - (bOuter - bInner) * frac;
+        const px = Math.cos(theta) * rad;
+        const py = Math.sin(theta) * rad;
+        if (p === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
       ctx.stroke();
     }
 
-    // 3. Center Vinyl Label (Retro authentic 45-RPM record sticker)
-    const labelR = r * 0.40;
-    
-    // Rich vinyl label red gradient
+    // 1.3. Rotating Specular Groove Flecks & Lead-In Markers
+    // Highly visible specular segments that clearly travel with rotation
+    const fleckCount = 16;
+    for (let f = 0; f < fleckCount; f++) {
+      const fa = (f / fleckCount) * Math.PI * 2 + (f % 3) * 0.4;
+      const fr = labelR + 10 + ((f * 17) % (r - labelR - 20));
+      const arcLen = 0.18 + (f % 4) * 0.08;
+
+      ctx.strokeStyle = (f % 2 === 0) ? 'rgba(255, 255, 255, 0.35)' : 'rgba(0, 243, 255, 0.30)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.arc(0, 0, fr, fa, fa + arcLen);
+      ctx.stroke();
+    }
+
+    // 1.4. Technics High-Contrast Strobe Rim Blocks
+    // Dual-row strobe blocks along the platter rim that orbit with rotation
+    const strobeMarks = 36;
+    for (let i = 0; i < strobeMarks; i++) {
+      const sa = (i / strobeMarks) * Math.PI * 2;
+      const isMajor = i % 3 === 0;
+
+      ctx.strokeStyle = isMajor ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 243, 255, 0.45)';
+      ctx.lineWidth = isMajor ? 2.5 : 1.5;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(sa) * (r - 7), Math.sin(sa) * (r - 7));
+      ctx.lineTo(Math.cos(sa) * (r - 2), Math.sin(sa) * (r - 2));
+      ctx.stroke();
+    }
+
+    // 1.5. Rotating Brass Label Clamp Collar with Grip Teeth
+    // Orbiting right at the edge of the non-rotating label to give crisp movement contrast!
+    ctx.strokeStyle = '#ca8a04';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(0, 0, labelR + 1, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const gripTeeth = 16;
+    for (let g = 0; g < gripTeeth; g++) {
+      const ga = (g / gripTeeth) * Math.PI * 2;
+      ctx.fillStyle = '#fde047';
+      ctx.beginPath();
+      ctx.arc(Math.cos(ga) * (labelR + 2), Math.sin(ga) * (labelR + 2), 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+
+    // 2. STATIC / NON-ROTATING CENTER VINYL LABEL
+    // Words do not move so they remain always upright and legible!
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    // Vinyl label gradient: Vibrant amber-red for 45 RPM single, deep crimson for 12" LP
     const labelGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, labelR);
-    labelGrad.addColorStop(0, '#f43f5e');
-    labelGrad.addColorStop(0.5, '#e11d48');
-    labelGrad.addColorStop(1, '#9f1239');
+    if (is45) {
+      labelGrad.addColorStop(0, '#f59e0b');
+      labelGrad.addColorStop(0.5, '#ef4444');
+      labelGrad.addColorStop(1, '#991b1b');
+    } else {
+      labelGrad.addColorStop(0, '#f43f5e');
+      labelGrad.addColorStop(0.5, '#e11d48');
+      labelGrad.addColorStop(1, '#881337');
+    }
     ctx.fillStyle = labelGrad;
     ctx.beginPath();
     ctx.arc(0, 0, labelR, 0, Math.PI * 2);
     ctx.fill();
 
     // Outer gold foil ring
-    ctx.strokeStyle = '#fbbf24';
+    ctx.strokeStyle = is45 ? '#fde047' : '#fbbf24';
     ctx.lineWidth = 2;
     ctx.stroke();
 
@@ -2534,11 +3130,40 @@ export class BumperQuestEngine {
     ctx.arc(0, 0, labelR * 0.72, 0, Math.PI * 2);
     ctx.stroke();
 
-    // Spindle Hole & Brass 45-RPM Center Adapter (Tapping here toggles pause!)
-    const spindleR = Math.max(10, labelR * 0.28);
+    // Spindle Hole & 45-RPM Center Insert
+    const spindleR = Math.max(9, labelR * (is45 ? 0.34 : 0.28));
+
+    if (is45) {
+      // Iconic 3-Wing Yellow Plastic 45-RPM Spider Adapter!
+      ctx.fillStyle = '#ffea00';
+      ctx.strokeStyle = '#ca8a04';
+      ctx.lineWidth = 1.5;
+
+      // 3 curved adapter wings
+      for (let i = 0; i < 3; i++) {
+        const wa = (i / 3) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, spindleR * 1.15, wa - 0.45, wa + 0.45);
+        ctx.lineTo(Math.cos(wa) * (spindleR * 0.55), Math.sin(wa) * (spindleR * 0.55));
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // 3 cutout vents (revealing dark platter beneath)
+      ctx.fillStyle = '#0a0a14';
+      for (let i = 0; i < 3; i++) {
+        const ca = (i / 3) * Math.PI * 2 + Math.PI / 3;
+        ctx.beginPath();
+        ctx.arc(Math.cos(ca) * (spindleR * 0.8), Math.sin(ca) * (spindleR * 0.8), 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Brass center spindle hole
     ctx.fillStyle = this.isPaused ? '#31102b' : '#0a0a14';
     ctx.beginPath();
-    ctx.arc(0, 0, spindleR, 0, Math.PI * 2);
+    ctx.arc(0, 0, spindleR * 0.65, 0, Math.PI * 2);
     ctx.fill();
     ctx.strokeStyle = this.isPaused ? '#ffea00' : '#fbbf24';
     ctx.lineWidth = 2;
@@ -2547,57 +3172,61 @@ export class BumperQuestEngine {
     // Inside Spindle: Glowing Pause Symbol ❚❚ or Resume Symbol ▶
     if (this.isPaused) {
       ctx.fillStyle = '#ffea00';
-      ctx.fillRect(-4.5, -6, 3, 12);
-      ctx.fillRect(1.5, -6, 3, 12);
+      ctx.fillRect(-3.5, -5, 2.2, 10);
+      ctx.fillRect(1.5, -5, 2.2, 10);
     } else {
-      // Sleek subtle pause bars in the brass spindle
       ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-      ctx.fillRect(-3.5, -4.5, 2.5, 9);
-      ctx.fillRect(1, -4.5, 2.5, 9);
+      ctx.fillRect(-2.5, -3.5, 1.8, 7);
+      ctx.fillRect(0.8, -3.5, 1.8, 7);
     }
 
-    // Record Label Typography:
-    // "BumperQuest" (Record Title)
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '900 8.5px "Press Start 2P", monospace';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.shadowColor = '#000000';
-    ctx.shadowBlur = 4;
-    ctx.fillText('BumperQuest', 0, -labelR * 0.46);
+    // Dynamic Font Sizing: strictly auto-scales text to fit within label boundaries
+    const maxTextW = labelR * 1.55;
+    const drawFittedText = (
+      text: string,
+      yPos: number,
+      baseSize: number,
+      weight: string = '700',
+      color: string = '#ffffff',
+      fontFam: string = 'monospace'
+    ) => {
+      let size = baseSize;
+      ctx.font = `${weight} ${size}px ${fontFam}`;
+      const measured = ctx.measureText(text).width;
+      if (measured > maxTextW && measured > 0) {
+        size = Math.max(4.2, baseSize * (maxTextW / measured));
+        ctx.font = `${weight} ${size}px ${fontFam}`;
+      }
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.shadowColor = '#000000';
+      ctx.shadowBlur = 3;
+      ctx.fillText(text, 0, yPos);
+    };
 
-    // "by: BostonyFX" (Record Label / Artist ID)
-    ctx.font = '700 7px monospace';
-    ctx.fillStyle = '#fef08a';
-    ctx.shadowBlur = 2;
-    ctx.fillText('by: BostonyFX', 0, -labelR * 0.26);
-
-    // "CAT# BFX-45 • 45 RPM"
-    ctx.font = '600 6px monospace';
-    ctx.fillStyle = '#f1f5f9';
-    ctx.shadowBlur = 0;
-    ctx.fillText(`CAT# BFX-45 • ${this.settings.rpm} RPM`, 0, labelR * 0.40);
-
-    // Tap to Pause / Resume hint along bottom
-    ctx.font = '700 5.5px monospace';
-    ctx.fillStyle = this.isPaused ? '#ffea00' : 'rgba(255, 255, 255, 0.7)';
-    ctx.fillText(this.isPaused ? '▶ TAP TO RESUME' : '❚❚ TAP TO PAUSE', 0, labelR * 0.58);
-
-    // Strobe timing markers along the disc edge
-    const strobeMarks = 24;
-    for (let i = 0; i < strobeMarks; i++) {
-      const sa = (i / strobeMarks) * Math.PI * 2;
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.35)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(Math.cos(sa) * (r - 6), Math.sin(sa) * (r - 6));
-      ctx.lineTo(Math.cos(sa) * (r - 2), Math.sin(sa) * (r - 2));
-      ctx.stroke();
-    }
+    drawFittedText('BumperQuest', -labelR * 0.48, is45 ? 7.5 : 8, '900', '#ffffff', '"Press Start 2P", monospace');
+    drawFittedText('by: BostonyFX', -labelR * 0.25, is45 ? 6.0 : 6.5, '700', '#fef08a', 'monospace');
+    drawFittedText(
+      is45 ? 'CAT# BFX-45 • 45 RPM SINGLE' : `CAT# BFX-33 • ${this.settings.rpm} RPM LP`,
+      labelR * 0.40,
+      is45 ? 5.5 : 6,
+      '600',
+      '#f1f5f9',
+      'monospace'
+    );
+    drawFittedText(
+      this.isPaused ? '▶ TAP TO RESUME' : '❚❚ TAP TO PAUSE',
+      labelR * 0.60,
+      5.0,
+      '700',
+      this.isPaused ? '#ffea00' : 'rgba(255, 255, 255, 0.75)',
+      'monospace'
+    );
 
     ctx.restore();
 
-    // Secret Super Flipper Needle Tonearm
+    // Audiophile Tonearm (Parks on cradle, extends occasionally to play a 45 single!)
     this.drawNeedleArm(ctx);
   }
 
@@ -2625,7 +3254,38 @@ export class BumperQuestEngine {
 
     ctx.save();
 
-    // 1. Motion Trail / Sweep Fan when Super Flipper is Active
+    // 0. Tonearm Rest Pillar Cradle (where arm docks safely outside vinyl perimeter)
+    const cradleDist = length * 0.75;
+    const cradleX = pivotX + Math.cos(arm.parkedAngle) * cradleDist;
+    const cradleY = pivotY + Math.sin(arm.parkedAngle) * cradleDist;
+
+    ctx.save();
+    // Rest pillar mounting post
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.arc(cradleX, cradleY, 5.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#0f172a';
+    ctx.fill();
+    ctx.stroke();
+
+    // Rest clip cradle notch
+    ctx.strokeStyle = arm.isExtended ? '#64748b' : '#00f3ff';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.arc(cradleX, cradleY, 3.8, arm.parkedAngle - Math.PI / 2, arm.parkedAngle + Math.PI / 2);
+    ctx.stroke();
+    ctx.restore();
+
+    // Status label above tonearm gimbal
+    ctx.font = '700 5.5px "Press Start 2P", monospace';
+    ctx.fillStyle = arm.isExtended ? '#ffea00' : '#94a3b8';
+    ctx.shadowBlur = arm.isExtended ? 6 : 0;
+    ctx.shadowColor = '#ffea00';
+    ctx.textAlign = 'center';
+    ctx.fillText(arm.isExtended ? '▶ 45 SINGLE' : '❚❚ 12" LP', pivotX, pivotY - 18);
+
+    // 1. Motion Trail / Sweep Fan when Super Flipper or Active
     if (arm.isSuperActive) {
       const fanAngle1 = Math.min(arm.baseAngle, arm.currentAngle) - 0.1;
       const fanAngle2 = Math.max(arm.baseAngle, arm.currentAngle) + 0.1;
@@ -2653,7 +3313,6 @@ export class BumperQuestEngine {
     }
 
     // 2. Heavy Gimbal Pivot Base with Counterweight
-    // Counterweight extending rearward
     const rearAngle = angle + Math.PI;
     const weightX = pivotX + Math.cos(rearAngle) * 22;
     const weightY = pivotY + Math.sin(rearAngle) * 22;
@@ -2710,9 +3369,10 @@ export class BumperQuestEngine {
       ctx.stroke();
     } else {
       // Sleek brushed titanium tube
-      ctx.strokeStyle = '#cbd5e1';
+      ctx.strokeStyle = arm.isExtended ? '#fde047' : '#cbd5e1';
       ctx.lineWidth = 2.8;
-      ctx.shadowBlur = 2;
+      ctx.shadowBlur = arm.isExtended ? 4 : 2;
+      ctx.shadowColor = '#fde047';
       ctx.stroke();
     }
 
@@ -2746,8 +3406,8 @@ export class BumperQuestEngine {
       }
     } else {
       // High-end audiophile cartridge
-      ctx.fillStyle = '#ffaa00';
-      ctx.strokeStyle = '#94a3b8';
+      ctx.fillStyle = arm.isExtended ? '#ffea00' : '#94a3b8';
+      ctx.strokeStyle = '#cbd5e1';
       ctx.lineWidth = 1.5;
       ctx.fillRect(-3, -4, 10, 8);
       ctx.strokeRect(-3, -4, 10, 8);
@@ -2755,21 +3415,15 @@ export class BumperQuestEngine {
       // Ruby stylus pin
       ctx.fillStyle = '#ff0055';
       ctx.beginPath();
-      ctx.arc(7, 0, 1.8, 0, Math.PI * 2);
+      ctx.arc(7, 0, 2, 0, Math.PI * 2);
       ctx.fill();
+
+      if (arm.isExtended && Math.random() < 0.2) {
+        this.addSparks(tipX, tipY, '#00f3ff', 1);
+      }
     }
+
     ctx.restore();
-
-    // 5. Pulsing Status Indicator on Base
-    if (arm.isSuperActive) {
-      ctx.font = '700 7px "Press Start 2P", monospace';
-      ctx.textAlign = 'center';
-      ctx.fillStyle = `rgba(255, 234, 0, ${0.7 + 0.3 * Math.sin(time * 8)})`;
-      ctx.shadowColor = '#ffea00';
-      ctx.shadowBlur = 8;
-      ctx.fillText('⚡ SUPER FLIPPER', pivotX, pivotY - 18);
-    }
-
     ctx.restore();
   }
 
@@ -3021,6 +3675,24 @@ export class BumperQuestEngine {
         ctx.beginPath();
         ctx.arc(px, py, isHit ? 2.5 : 1.5, 0, Math.PI * 2);
         ctx.fill();
+      }
+
+      // Special indicator aura if this is a temporary courtesy ball
+      if (ball.isCourtesyBall) {
+        const time = performance.now() * 0.001;
+        ctx.strokeStyle = '#ffea00';
+        ctx.lineWidth = 2.0;
+        ctx.shadowColor = '#ffea00';
+        ctx.shadowBlur = 14;
+        ctx.beginPath();
+        ctx.arc(0, 0, ball.radius + 3.5 + Math.sin(time * 8) * 1.5, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.font = '700 5.5px "Press Start 2P", monospace';
+        ctx.textAlign = 'center';
+        ctx.fillStyle = '#ffea00';
+        ctx.shadowBlur = 4;
+        ctx.fillText('COURTESY', 0, -ball.radius - 8);
       }
 
       ctx.restore();
@@ -3440,96 +4112,214 @@ export class BumperQuestEngine {
   private drawTopCornerGadgets(ctx: CanvasRenderingContext2D) {
     const time = performance.now() * 0.001;
 
-    // 1. Top-Left Laser Slicer (Splits ball into twins!)
+    // 1. Top-Left Rotary Saw Blade Slicer (Engages 5s every 30s)
     {
       const s = this.slicer;
       ctx.save();
       ctx.translate(s.x, s.y);
 
+      const isEngaged = s.isEngaged;
       const glow = s.activeGlow;
-      const primaryColor = glow > 0 ? '#ffffff' : '#00f3ff';
-      const accentColor = '#ff0055';
+      const primaryColor = isEngaged ? (glow > 0 ? '#ffffff' : '#00f3ff') : '#64748b';
+      const accentColor = isEngaged ? '#ff0055' : '#475569';
 
-      // Outer bezel with hazard glow
-      ctx.strokeStyle = `rgba(0, 243, 255, ${0.4 + glow * 0.5})`;
+      // 0. Safety shroud / perimeter guard ring
+      ctx.strokeStyle = isEngaged ? `rgba(0, 243, 255, ${0.4 + glow * 0.5})` : 'rgba(100, 116, 139, 0.4)';
       ctx.lineWidth = 2;
-      ctx.shadowColor = '#00f3ff';
-      ctx.shadowBlur = 8 + glow * 16;
+      ctx.shadowColor = isEngaged ? '#00f3ff' : '#334155';
+      ctx.shadowBlur = isEngaged ? (10 + glow * 16) : 3;
       ctx.beginPath();
-      ctx.arc(0, 0, s.radius + 5, 0, Math.PI * 2);
+      ctx.arc(0, 0, s.radius + 6, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Spinning high-speed buzz-blade teeth
+      // If charging, draw circular charging progress arc
+      if (!isEngaged) {
+        const chargeProgress = Math.max(0, 1 - Math.max(0, (s.cycleTimer ?? 25) - 5) / 25);
+        ctx.strokeStyle = '#00f3ff';
+        ctx.lineWidth = 2;
+        ctx.shadowColor = '#00f3ff';
+        ctx.shadowBlur = 6;
+        ctx.beginPath();
+        ctx.arc(0, 0, s.radius + 6, -Math.PI / 2, -Math.PI / 2 + chargeProgress * Math.PI * 2);
+        ctx.stroke();
+      }
+
+      // 1. Spinning Rotary Saw Blade
       ctx.save();
       ctx.rotate(s.angle);
-      const bladeTeeth = 6;
+
+      // Industrial rotary saw blade profile with 14 carbide cutting teeth
+      const teethCount = 14;
+      const rTip = s.radius + 4;
+      const rGullet = s.radius * 0.72;
+      const rBody = s.radius * 0.88;
+
       ctx.beginPath();
-      for (let i = 0; i < bladeTeeth; i++) {
-        const a1 = (i / bladeTeeth) * Math.PI * 2;
-        const a2 = a1 + (Math.PI / bladeTeeth);
-        const rOut = s.radius + 3;
-        const rIn = s.radius * 0.65;
-        const x1 = Math.cos(a1) * rOut;
-        const y1 = Math.sin(a1) * rOut;
-        const x2 = Math.cos(a2) * rIn;
-        const y2 = Math.sin(a2) * rIn;
-        if (i === 0) ctx.moveTo(x1, y1);
-        else ctx.lineTo(x1, y1);
-        ctx.lineTo(x2, y2);
+      for (let i = 0; i < teethCount; i++) {
+        const aBase = (i / teethCount) * Math.PI * 2;
+        const aTip = aBase + (Math.PI * 2 / teethCount) * 0.45; // hooked forward cutting rake
+        const aBack = aBase + (Math.PI * 2 / teethCount) * 0.80;
+
+        // Gullet start
+        const gx1 = Math.cos(aBase) * rGullet;
+        const gy1 = Math.sin(aBase) * rGullet;
+
+        // Hooked cutting face up to carbide tip
+        const tx = Math.cos(aTip) * rTip;
+        const ty = Math.sin(aTip) * rTip;
+
+        // Sloping relief back edge down to gullet
+        const bx = Math.cos(aBack) * rBody;
+        const by = Math.sin(aBack) * rBody;
+
+        if (i === 0) {
+          ctx.moveTo(gx1, gy1);
+        } else {
+          ctx.lineTo(gx1, gy1);
+        }
+        ctx.lineTo(tx, ty);
+        ctx.lineTo(bx, by);
       }
       ctx.closePath();
-      ctx.fillStyle = glow > 0 ? '#ffffff' : '#1e293b';
+
+      // Metallic tool steel blade body gradient
+      const bladeGrad = ctx.createRadialGradient(0, 0, 2, 0, 0, rTip);
+      bladeGrad.addColorStop(0, '#e2e8f0');
+      bladeGrad.addColorStop(0.3, '#94a3b8');
+      bladeGrad.addColorStop(0.7, isEngaged ? (glow > 0 ? '#38bdf8' : '#475569') : '#334155');
+      bladeGrad.addColorStop(1, isEngaged ? '#0f172a' : '#1e293b');
+      ctx.fillStyle = bladeGrad;
       ctx.fill();
+
+      // Carbide steel rim stroke
       ctx.strokeStyle = primaryColor;
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
-      ctx.restore();
-
-      // Center laser aperture
-      ctx.beginPath();
-      ctx.arc(0, 0, s.radius * 0.52, 0, Math.PI * 2);
-      ctx.fillStyle = '#080c14';
-      ctx.fill();
-      ctx.strokeStyle = accentColor;
-      ctx.lineWidth = 1.8;
+      ctx.lineWidth = isEngaged ? 2 : 1.5;
+      ctx.shadowColor = isEngaged ? '#00f3ff' : '#000000';
+      ctx.shadowBlur = isEngaged ? 8 : 0;
       ctx.stroke();
 
-      // Glowing plasma laser beam slicing through the center aperture!
-      ctx.strokeStyle = glow > 0 ? '#ffffff' : `rgba(255, 0, 85, ${0.75 + 0.25 * Math.sin(time * 12)})`;
-      ctx.lineWidth = glow > 0 ? 3.5 : 2;
-      ctx.shadowColor = '#ff0055';
-      ctx.shadowBlur = 12 + glow * 10;
-      ctx.beginPath();
-      ctx.moveTo(-s.radius + 2, -s.radius + 2);
-      ctx.lineTo(s.radius - 2, s.radius - 2);
-      ctx.stroke();
-
-      // Core white laser thread
-      ctx.strokeStyle = '#ffffff';
+      // 2. Concentric circular machining grind lines on saw face
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
       ctx.lineWidth = 1;
       ctx.beginPath();
-      ctx.moveTo(-s.radius + 4, -s.radius + 4);
-      ctx.lineTo(s.radius - 4, s.radius - 4);
+      ctx.arc(0, 0, s.radius * 0.58, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(0, 0, s.radius * 0.42, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Label beneath
-      ctx.font = '700 6.5px "Press Start 2P", monospace';
+      // 3. Four laser-cut thermal expansion slots (characteristic of rotary circular saws)
+      ctx.strokeStyle = isEngaged ? '#00f3ff' : '#0f172a';
+      ctx.lineWidth = 1.2;
+      for (let sl = 0; sl < 4; sl++) {
+        const slotAngle = (sl / 4) * Math.PI * 2;
+        const sx1 = Math.cos(slotAngle) * (s.radius * 0.38);
+        const sy1 = Math.sin(slotAngle) * (s.radius * 0.38);
+        const sx2 = Math.cos(slotAngle) * (s.radius * 0.76);
+        const sy2 = Math.sin(slotAngle) * (s.radius * 0.76);
+
+        ctx.beginPath();
+        ctx.moveTo(sx1, sy1);
+        ctx.lineTo(sx2, sy2);
+        ctx.stroke();
+
+        // Round expansion relief hole at end of slot
+        ctx.fillStyle = '#0a0f1d';
+        ctx.beginPath();
+        ctx.arc(sx1, sy1, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // 4. Heavy Center Arbor Assembly
+      // Outer clamping arbor washer
+      ctx.fillStyle = '#1e293b';
+      ctx.strokeStyle = isEngaged ? '#00f3ff' : '#94a3b8';
+      ctx.lineWidth = 1.8;
+      ctx.beginPath();
+      ctx.arc(0, 0, s.radius * 0.36, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Hexagonal arbor nut
+      ctx.fillStyle = isEngaged ? (glow > 0 ? '#ffffff' : '#ff0055') : '#475569';
+      ctx.strokeStyle = isEngaged ? '#ffea00' : '#cbd5e1';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      const hexSides = 6;
+      const rNut = s.radius * 0.20;
+      for (let h = 0; h < hexSides; h++) {
+        const ha = (h / hexSides) * Math.PI * 2;
+        const hx = Math.cos(ha) * rNut;
+        const hy = Math.sin(ha) * rNut;
+        if (h === 0) ctx.moveTo(hx, hy);
+        else ctx.lineTo(hx, hy);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Spindle center hole
+      ctx.fillStyle = '#080c14';
+      ctx.beginPath();
+      ctx.arc(0, 0, s.radius * 0.08, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore(); // restore rotation
+
+      // 5. Plasma laser cut line when engaged
+      if (isEngaged) {
+        ctx.strokeStyle = glow > 0 ? '#ffffff' : `rgba(0, 243, 255, ${0.8 + 0.2 * Math.sin(time * 14)})`;
+        ctx.lineWidth = glow > 0 ? 3.5 : 2;
+        ctx.shadowColor = '#00f3ff';
+        ctx.shadowBlur = 14 + glow * 12;
+        ctx.beginPath();
+        ctx.moveTo(-s.radius - 2, 0);
+        ctx.lineTo(s.radius + 2, 0);
+        ctx.stroke();
+
+        // White core spark beam
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(-s.radius + 1, 0);
+        ctx.lineTo(s.radius - 1, 0);
+        ctx.stroke();
+      }
+
+      // Status labels beneath
+      ctx.font = '700 6px "Press Start 2P", monospace';
       ctx.textAlign = 'center';
-      ctx.fillStyle = primaryColor;
-      ctx.shadowColor = '#00f3ff';
-      ctx.shadowBlur = 6;
-      ctx.fillText('⚔️ SLICER', 0, s.radius + 16);
+      if (isEngaged) {
+        ctx.fillStyle = '#00f3ff';
+        ctx.shadowColor = '#00f3ff';
+        ctx.shadowBlur = 6;
+        ctx.fillText('⚔️ ROTARY SAW [ON]', 0, s.radius + 16);
+        ctx.font = '700 5px "Press Start 2P", monospace';
+        ctx.fillStyle = '#ff0055';
+        ctx.fillText(`${Math.ceil(s.cycleTimer)}s LEFT`, 0, s.radius + 25);
+      } else {
+        const secToEngage = Math.max(1, Math.ceil((s.cycleTimer ?? 25) - 5));
+        ctx.fillStyle = '#94a3b8';
+        ctx.shadowBlur = 0;
+        ctx.fillText('ROTARY SAW IDLE', 0, s.radius + 16);
+        ctx.font = '700 5px "Press Start 2P", monospace';
+        ctx.fillStyle = '#00f3ff';
+        ctx.fillText(`⚡ IN ${secToEngage}s`, 0, s.radius + 25);
+      }
 
       ctx.restore();
     }
 
-    // 2. Top-Right Stasis Capture Chamber (Captures a ball for 15s then releases!)
+    // 2. Top-Right Stasis Capture Chamber (Captures multiple balls for 15s each, shoots to record player!)
     {
       const sc = this.stasisChamber;
       ctx.save();
       ctx.translate(sc.x, sc.y);
 
-      const isHolding = !!sc.capturedBall;
+      const capturedList = sc.capturedBalls || [];
+      const isHolding = capturedList.length > 0;
       const glow = sc.activeGlow;
       const ringColor = isHolding ? '#a855f7' : (glow > 0 ? '#ffffff' : '#38bdf8');
 
@@ -3565,9 +4355,9 @@ export class BumperQuestEngine {
       ctx.arc(0, 0, sc.radius - 2, 0, Math.PI * 2);
       ctx.fill();
 
-      if (isHolding && sc.capturedBall) {
-        const cb = sc.capturedBall;
-        const progress = Math.max(0, cb.timer / cb.maxTimer);
+      if (isHolding) {
+        const minTimer = Math.min(...capturedList.map(b => b.timer));
+        const progress = Math.max(0, minTimer / 15.0);
 
         // Circular countdown progress meter arc
         ctx.strokeStyle = '#ffea00';
@@ -3578,40 +4368,47 @@ export class BumperQuestEngine {
         ctx.arc(0, 0, sc.radius + 3, -Math.PI / 2, -Math.PI / 2 + progress * Math.PI * 2);
         ctx.stroke();
 
-        // The captured ball orbiting smoothly in the tractor beam
-        const orbR = 5;
-        const bx = Math.cos(cb.orbitAngle) * orbR;
-        const by = Math.sin(cb.orbitAngle) * orbR;
+        // Render each captured ball orbiting in tractor suspension
+        for (let idx = 0; idx < capturedList.length; idx++) {
+          const cb = capturedList[idx];
+          const orbR = cb.orbitRadius || (6 + (idx % 3) * 4);
+          const bx = Math.cos(cb.orbitAngle) * orbR;
+          const by = Math.sin(cb.orbitAngle) * orbR;
 
-        // Energy tendrils tethering ball
-        ctx.strokeStyle = 'rgba(192, 132, 252, 0.8)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(-bx, -by);
-        ctx.lineTo(bx, by);
-        ctx.stroke();
+          // Energy tendrils tethering ball
+          ctx.strokeStyle = 'rgba(192, 132, 252, 0.8)';
+          ctx.lineWidth = 1.2;
+          ctx.beginPath();
+          ctx.moveTo(-bx * 0.4, -by * 0.4);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
 
-        // Ball itself
-        ctx.fillStyle = cb.color;
-        ctx.shadowColor = cb.color;
-        ctx.shadowBlur = 10;
-        ctx.beginPath();
-        ctx.arc(bx, by, cb.radius * 0.85, 0, Math.PI * 2);
-        ctx.fill();
+          // Ball itself
+          ctx.fillStyle = cb.color;
+          ctx.shadowColor = cb.color;
+          ctx.shadowBlur = 10;
+          ctx.beginPath();
+          ctx.arc(bx, by, Math.max(4, cb.radius * 0.8), 0, Math.PI * 2);
+          ctx.fill();
+        }
 
-        // Huge glowing countdown timer in center
-        ctx.font = '900 10.5px "Press Start 2P", monospace';
+        // Glowing countdown timer in center
+        ctx.font = '900 8.5px "Press Start 2P", monospace';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = '#ffea00';
         ctx.shadowColor = '#ffea00';
-        ctx.shadowBlur = 10;
-        ctx.fillText(`${Math.ceil(cb.timer)}s`, 0, -sc.radius - 10);
+        ctx.shadowBlur = 8;
+        ctx.fillText(`${Math.ceil(minTimer)}s`, 0, 0);
 
-        ctx.font = '700 6.5px "Press Start 2P", monospace';
+        // Status labels beneath
+        ctx.font = '700 6px "Press Start 2P", monospace';
         ctx.fillStyle = '#c084fc';
         ctx.shadowBlur = 4;
-        ctx.fillText('STASIS LOCK', 0, sc.radius + 16);
+        ctx.fillText(capturedList.length > 1 ? `🔒 ${capturedList.length} CAPTURED` : '🔒 STASIS LOCK', 0, sc.radius + 15);
+        ctx.font = '700 5px "Press Start 2P", monospace';
+        ctx.fillStyle = '#38bdf8';
+        ctx.fillText('TARGET: VINYL', 0, sc.radius + 24);
       } else {
         // Idle pulsing target reticle
         ctx.strokeStyle = `rgba(168, 85, 247, ${0.5 + 0.3 * Math.sin(time * 6)})`;
@@ -3623,12 +4420,15 @@ export class BumperQuestEngine {
         ctx.lineTo(0, 8);
         ctx.stroke();
 
-        ctx.font = '700 6.5px "Press Start 2P", monospace';
+        ctx.font = '700 6px "Press Start 2P", monospace';
         ctx.textAlign = 'center';
         ctx.fillStyle = '#c084fc';
         ctx.shadowColor = '#a855f7';
         ctx.shadowBlur = 6;
-        ctx.fillText('🔒 15s STASIS', 0, sc.radius + 16);
+        ctx.fillText('🔒 15s STASIS', 0, sc.radius + 15);
+        ctx.font = '700 5px "Press Start 2P", monospace';
+        ctx.fillStyle = '#94a3b8';
+        ctx.fillText('RECORD LAUNCH', 0, sc.radius + 24);
       }
 
       ctx.restore();

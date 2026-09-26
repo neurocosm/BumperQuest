@@ -3,7 +3,7 @@ import { X, Sliders, Volume2, VolumeX, Disc, Eye, Zap, RefreshCw } from 'lucide-
 import { GameSettings } from '../game/physics';
 import { soundSynth } from '../audio/SoundSynthesizer';
 
-export const APP_VERSION = 'v1.09252026.2231';
+export const APP_VERSION = 'v1.09262026.0548';
 
 interface SettingsModalProps {
   isOpen: boolean;
