@@ -1,0 +1,15 @@
+A brain fidget spinner!
+
+combining likeness ideas from iconic video games with the sensibilities of PINBALL.
+- tempest
+- pac-man
+- Qix
+- - power ups.
+- - shapes circle, square, triangle, using numbers that multiply upon bumping
+--- center POWER BUMPER with TEMPEST crawler that moves around protecting from richochet shapes!
+--- gyroscope and compass sensors can help move things around! (sensitivity settings.
+--- flippers at each corner... plus center bumper
+--- shapes float around with number multipliers that charge up!
+- SELF PLAYING. it's an automation fidget spinner!
+- changing psychedelic kaleidoscope backgrounds. space travel, etc.
+- there should be trailing adjustments so users can SEE the timing with the DOTS that represent the strokes coming up and down for timing.
