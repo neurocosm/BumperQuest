@@ -139,16 +139,16 @@ export const HUD: React.FC<HUDProps> = ({
 
   return (
     <>
-      {/* Floating Eyeball Toggle when Letterboard Stats are hidden (top right) */}
+      {/* Floating Eyeball Toggle when Letterboard Stats are hidden (centered at top, clear of corner gadgets) */}
       {isLetterboardHidden && (
-        <div className="absolute top-2 right-2 z-40 pointer-events-auto animate-in fade-in duration-300">
+        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 pointer-events-auto animate-in fade-in duration-300">
           <button
             onClick={showLetterboard}
             title="Show Letterboard Stats (Click to restore top bar)"
-            className="p-1.5 sm:p-2 rounded-full bg-[#0a0c16]/95 hover:bg-[#12162a] text-cyan-400 hover:text-white border border-cyan-500/60 backdrop-blur-md shadow-xl shadow-cyan-950/90 transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 px-3"
+            className="p-1 sm:p-1.5 rounded-full bg-[#0a0c16]/95 hover:bg-[#12162a] text-cyan-400 hover:text-white border border-cyan-500/60 backdrop-blur-md shadow-xl shadow-cyan-950/90 transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 px-3"
           >
-            <Eye className="w-4 h-4 text-cyan-400 animate-pulse" />
-            <span className="text-[10px] font-mono text-cyan-300 font-bold hidden sm:inline tracking-wider">STATS</span>
+            <Eye className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+            <span className="text-[9.5px] font-mono text-cyan-300 font-bold tracking-wider">SHOW STATS</span>
           </button>
         </div>
       )}

@@ -542,10 +542,10 @@ export class BumperQuestEngine {
       ? Math.min(w * 0.22, h * 0.09)
       : Math.min(h * 0.20, w * 0.12);
 
-    const marginX = isPortrait ? Math.max(28, w * 0.12) : Math.max(45, w * 0.12);
+    const marginX = isPortrait ? Math.max(30, w * 0.12) : Math.max(52, w * 0.12);
     // Safe margins away from the top status bar/banners and bottom apron flairs
-    const topMarginY = isPortrait ? Math.max(95, h * 0.14) : Math.max(48, h * 0.13);
-    const bottomMarginY = isPortrait ? Math.min(h - 72, h * 0.85) : Math.min(h - 45, h * 0.86);
+    const topMarginY = isPortrait ? Math.max(95, h * 0.14) : Math.max(62, h * 0.16);
+    const bottomMarginY = isPortrait ? Math.min(h - 72, h * 0.85) : Math.min(h - 52, h * 0.84);
 
     this.flippers = [
       {
@@ -611,14 +611,20 @@ export class BumperQuestEngine {
     const w = this.width;
     const h = this.height;
     const isPortrait = h > w;
-    const marginX = isPortrait ? Math.max(28, w * 0.12) : Math.max(45, w * 0.12);
-    const bottomMarginY = isPortrait ? Math.min(h - 72, h * 0.85) : Math.min(h - 45, h * 0.86);
+    const marginX = isPortrait ? Math.max(30, w * 0.12) : Math.max(52, w * 0.12);
+    const bottomMarginY = isPortrait ? Math.min(h - 72, h * 0.85) : Math.min(h - 52, h * 0.84);
 
-    // Placed in the bottom corners directly under the lower flipper pivots
-    const leftX = Math.max(26, marginX * 0.58);
-    const rightX = Math.min(w - 26, w - marginX * 0.58);
-    const pinwheelY = Math.min(h - 24, bottomMarginY + (h - bottomMarginY) * 0.46);
-    const r = Math.min(18, Math.max(13, Math.min(w, h) * 0.030));
+    // Dynamic, responsive sizing that never overflows corner pockets
+    const r = isPortrait
+      ? Math.max(9, Math.min(13, w * 0.026))
+      : Math.max(10, Math.min(14, h * 0.028));
+    const spikeLen = r * 0.45;
+    const outerBound = r + spikeLen + 5;
+
+    // Placed in the bottom corners safely inside boundaries
+    const leftX = Math.max(outerBound + 12, marginX * 0.56);
+    const rightX = Math.min(w - (outerBound + 12), w - marginX * 0.56);
+    const pinwheelY = Math.min(h - (outerBound + 8), bottomMarginY + (h - bottomMarginY) * 0.48);
 
     this.pinwheels = [
       {
@@ -626,7 +632,7 @@ export class BumperQuestEngine {
         x: leftX,
         y: pinwheelY,
         radius: r,
-        spikeLength: r * 0.55,
+        spikeLength: spikeLen,
         spikeCount: 8,
         angle: 0,
         rotationSpeed: 0.13, // Fast clockwise spin (whipping balls up & in)
@@ -638,7 +644,7 @@ export class BumperQuestEngine {
         x: rightX,
         y: pinwheelY,
         radius: r,
-        spikeLength: r * 0.55,
+        spikeLength: spikeLen,
         spikeCount: 8,
         angle: 0,
         rotationSpeed: -0.13, // Fast counter-clockwise spin (whipping balls up & in)
@@ -652,14 +658,18 @@ export class BumperQuestEngine {
     const w = this.width;
     const h = this.height;
     const isPortrait = h > w;
-    const marginX = isPortrait ? Math.max(28, w * 0.12) : Math.max(45, w * 0.12);
-    const topMarginY = isPortrait ? Math.max(95, h * 0.14) : Math.max(48, h * 0.13);
+    const marginX = isPortrait ? Math.max(30, w * 0.12) : Math.max(52, w * 0.12);
+    const topMarginY = isPortrait ? Math.max(95, h * 0.14) : Math.max(62, h * 0.16);
 
-    // Placed in top corners safely above the flipper sweep and clear of banners
-    const leftX = Math.max(24, marginX * 0.58);
-    const rightX = Math.min(w - 24, w - marginX * 0.58);
-    const gadgetY = Math.max(28, topMarginY * 0.44);
-    const r = Math.min(20, Math.max(14, Math.min(w, h) * 0.032));
+    // Responsive corner gadget sizing that guarantees padding from screen edges
+    const r = isPortrait
+      ? Math.max(11, Math.min(15, w * 0.028))
+      : Math.max(11, Math.min(14, h * 0.030));
+    const outerBound = r * 1.4 + 4;
+
+    const leftX = Math.max(outerBound + 16, marginX * 0.56);
+    const rightX = Math.min(w - (outerBound + 16), w - marginX * 0.56);
+    const gadgetY = Math.max(outerBound + 10, topMarginY * 0.40);
 
     // Top-Left Laser Slicer (Engages 5s every 30s)
     this.slicer = {
@@ -678,7 +688,7 @@ export class BumperQuestEngine {
     this.stasisChamber = {
       x: rightX,
       y: gadgetY,
-      radius: r * 1.15,
+      radius: r * 1.1,
       rotation: 0,
       activeGlow: 0,
       capturedBalls: this.stasisChamber?.capturedBalls || [],
@@ -727,55 +737,62 @@ export class BumperQuestEngine {
   private setupHazards() {
     const cx = this.width / 2;
     const cy = this.height / 2;
-    const scale = Math.min(this.width, this.height);
+    const isPortrait = this.height > this.width;
+
+    // Balanced responsive sizing for the orbiting multiplier elements
+    const baseR = isPortrait
+      ? Math.max(11, Math.min(14, this.width * 0.032))
+      : Math.max(11, Math.min(15, this.height * 0.034));
+
+    const orbitR = this.turntable.radius + (isPortrait ? 36 : 42);
 
     this.hazards = [
       // 🔵 Circle: Smooth orbital path
       {
         id: 1,
         type: 'circle',
-        x: cx + scale * 0.28,
+        x: cx + orbitR,
         y: cy,
         vx: 0,
         vy: 0,
-        radius: 20,
+        radius: baseR,
         angle: 0,
         angularVelocity: 0.02,
         multiplier: 2,
         color: '#00f3ff',
         hitGlow: 0,
         orbitAngle: 0,
-        orbitRadius: scale * 0.28,
+        orbitRadius: orbitR,
       },
       // 🟩 Square: Step-logic grid jumps
       {
         id: 2,
         type: 'square',
-        x: cx - scale * 0.26,
-        y: cy - scale * 0.15,
+        x: cx - orbitR * 0.88,
+        y: cy - orbitR * 0.5,
         vx: 0,
         vy: 0,
-        radius: 22,
+        radius: Math.round(baseR * 1.05),
         angle: 0,
         angularVelocity: 0.015,
         multiplier: 3,
         color: '#00ff66',
         hitGlow: 0,
-        gridTargetX: cx - scale * 0.26,
-        gridTargetY: cy - scale * 0.15,
+        gridTargetX: cx - orbitR * 0.88,
+        gridTargetY: cy - orbitR * 0.5,
         stepTimer: 0,
       },
       // 🔺 Triangle: High-velocity screensaver zig-zag
       {
         id: 3,
         type: 'triangle',
-        x: cx + scale * 0.18,
-        y: cy - scale * 0.26,
-        vx: 2.8,
-        vy: 2.2,
-        radius: 24,
+        x: cx + orbitR * 0.7,
+        y: cy - orbitR * 0.75,
+        vx: 2.2,
+        vy: 1.8,
+        radius: Math.round(baseR * 1.1),
         angle: 0,
-        angularVelocity: 0.04,
+        angularVelocity: 0.035,
         multiplier: 5,
         color: '#ff0055',
         hitGlow: 0,
@@ -785,12 +802,12 @@ export class BumperQuestEngine {
         id: 4,
         type: 'rectangle',
         x: cx,
-        y: cy + scale * 0.32,
-        vx: 2.0,
+        y: cy + orbitR * 0.85,
+        vx: 1.8,
         vy: 0,
-        radius: 26,
-        width: 60,
-        height: 18,
+        radius: baseR,
+        width: Math.round(baseR * 2.8),
+        height: Math.round(baseR * 0.95),
         angle: 0,
         angularVelocity: 0,
         multiplier: 4,
@@ -1124,9 +1141,9 @@ export class BumperQuestEngine {
           h.vy = -h.vy;
         }
       } else if (h.type === 'rectangle') {
-        // Pendulum sliding side-to-side
+        // Pendulum sliding side-to-side cleanly within central zone
         h.x += h.vx;
-        const range = scale * 0.25;
+        const range = Math.min(scale * 0.16, 75);
         if (h.x > cx + range) {
           h.x = cx + range;
           h.vx = -Math.abs(h.vx);
@@ -1190,12 +1207,12 @@ export class BumperQuestEngine {
         if (frac < 0.04 && !topBumper.isMoving) {
           soundSynth.playBumperChime(2);
           this.notices.push({
-            text: '▲ TOP BUMPER GUARDING DRAIN ▲',
-            x: cx - 45 * sideDir,
-            y: topBaseY - 55,
-            vy: -0.3,
+            text: '▲ DRAIN GUARD ▲',
+            x: cx - 35 * sideDir,
+            y: topBaseY - 45,
+            vy: -0.25,
             life: 0,
-            maxLife: 70,
+            maxLife: 40,
             color: '#00f3ff',
           });
         }
@@ -1229,12 +1246,12 @@ export class BumperQuestEngine {
         if (frac < 0.04 && !botBumper.isMoving) {
           soundSynth.playBumperChime(2);
           this.notices.push({
-            text: '▼ BOTTOM BUMPER GUARDING DRAIN ▼',
-            x: cx + 45 * sideDir,
-            y: botBaseY + 55,
-            vy: 0.3,
+            text: '▼ DRAIN GUARD ▼',
+            x: cx + 35 * sideDir,
+            y: botBaseY + 45,
+            vy: 0.25,
             life: 0,
-            maxLife: 70,
+            maxLife: 40,
             color: '#ff0055',
           });
         }
@@ -1354,19 +1371,19 @@ export class BumperQuestEngine {
       this.addSparks(this.turntable.x, this.turntable.y, '#ffea00', 20);
 
       this.notices.push({
-        text: '⚡ 45 RPM SINGLE! (COMPACT BUMPER) ⚡',
+        text: '⚡ 45 RPM SINGLE! ⚡',
         x: this.turntable.x,
-        y: this.turntable.y - 88,
-        vy: -0.4,
+        y: this.turntable.y - this.turntable.radius - 20,
+        vy: -0.3,
         life: 0,
-        maxLife: 80,
+        maxLife: 40,
         color: '#ffea00',
       });
     } else if (arm.isExtended && !shouldExtend) {
       // Tonearm RETRACTS safely to rest cradle: record expands back to 12" LP!
       arm.isExtended = false;
       arm.targetAngle = arm.parkedAngle;
-      this.turntable.targetRadius = this.turntable.baseLPRadius; // 112px standard LP bumper
+      this.turntable.targetRadius = this.turntable.baseLPRadius;
       this.turntable.is45RPM = false;
       soundSynth.playTurntableScratch(0.9);
 
@@ -1380,12 +1397,12 @@ export class BumperQuestEngine {
       });
 
       this.notices.push({
-        text: '⚡ 12" LP 33 RPM! (FULL-SIZE BUMPER) ⚡',
+        text: '⚡ 33 RPM LP! ⚡',
         x: this.turntable.x,
-        y: this.turntable.y - 126,
-        vy: -0.4,
+        y: this.turntable.y - this.turntable.radius - 20,
+        vy: -0.3,
         life: 0,
-        maxLife: 80,
+        maxLife: 40,
         color: '#00f3ff',
       });
     }
@@ -1522,12 +1539,12 @@ export class BumperQuestEngine {
         this.addSparks(this.stasisChamber.x, this.stasisChamber.y, '#00f3ff', 18);
 
         this.notices.push({
-          text: '⚡ RECORD PLAYER HYPER-LAUNCH! ⚡',
-          x: this.stasisChamber.x - 70,
-          y: this.stasisChamber.y + 35,
-          vy: 0.3,
+          text: '⚡ HYPER-LAUNCH! ⚡',
+          x: this.width / 2,
+          y: this.stasisChamber.y + 20,
+          vy: 0.25,
           life: 0,
-          maxLife: 80,
+          maxLife: 45,
           color: '#a855f7',
         });
         this.score += 1500 * this.currentMultiplier;
@@ -2210,12 +2227,12 @@ export class BumperQuestEngine {
             this.addSparks(sc.x, sc.y, '#ffffff', 10);
 
             this.notices.push({
-              text: trappedCount > 1 ? `🔒 STASIS CAPTURE (${trappedCount} BALLS)` : '🔒 CAPTURED! (15 SECONDS)',
-              x: sc.x - 70,
-              y: sc.y + 30,
-              vy: 0.3,
+              text: trappedCount > 1 ? `🔒 ${trappedCount} BALLS LOCKED!` : '🔒 STASIS LOCK (15s)',
+              x: this.width / 2,
+              y: sc.y + 20,
+              vy: 0.25,
               life: 0,
-              maxLife: 80,
+              maxLife: 45,
               color: '#a855f7',
             });
 
@@ -2452,12 +2469,12 @@ export class BumperQuestEngine {
     this.addSparks(this.width / 2, this.height / 2, '#00f3ff', 20);
 
     this.notices.push({
-      text: `★ ALL X-MULTIPLIERS HIT! +${spawnCount} BALLS +8 DOTS ★`,
+      text: `★ MATRIX SURGE! +${spawnCount} BALLS ★`,
       x: this.width / 2,
-      y: this.height * 0.44,
-      vy: -0.5,
+      y: this.height * 0.42,
+      vy: -0.4,
       life: 0,
-      maxLife: 130,
+      maxLife: 50,
       color: '#ffea00',
     });
 
@@ -2494,16 +2511,6 @@ export class BumperQuestEngine {
       });
     }
 
-    this.notices.push({
-      text: `★ WAVE ${this.wave} CLEARED! +${bonus.toLocaleString()} PTS ★`,
-      x: this.width / 2,
-      y: this.height * 0.38,
-      vy: -0.4,
-      life: 0,
-      maxLife: 150,
-      color: '#00ff66',
-    });
-
     this.onWaveClear?.(this.wave, this.score);
     this.onStateChange?.(this.gameState, this.stateCountdown, this.wave);
   }
@@ -2524,12 +2531,12 @@ export class BumperQuestEngine {
     this.spider.speed = Math.min(0.14, 0.08 + this.wave * 0.008);
 
     this.notices.push({
-      text: `WAVE ${this.wave} START!`,
+      text: `★ WAVE ${this.wave} START ★`,
       x: this.width / 2,
-      y: this.height * 0.38,
-      vy: -0.5,
+      y: this.height * 0.40,
+      vy: -0.4,
       life: 0,
-      maxLife: 90,
+      maxLife: 45,
       color: '#00f3ff',
     });
 
@@ -2550,16 +2557,6 @@ export class BumperQuestEngine {
       maxRadius: 220,
       color: '#ff0055',
       alpha: 1.0,
-    });
-
-    this.notices.push({
-      text: 'ALL BALLS DRAINED // ROUND OVER',
-      x: this.width / 2,
-      y: this.height * 0.42,
-      vy: -0.2,
-      life: 0,
-      maxLife: 160,
-      color: '#ff0055',
     });
 
     this.onGameOver?.(this.score);
@@ -3535,11 +3532,11 @@ export class BumperQuestEngine {
     if (this.litMultiplierIds.size >= 2) {
       const litHazards = this.hazards.filter(h => this.litMultiplierIds.has(h.id));
       ctx.save();
-      ctx.strokeStyle = `rgba(255, 234, 0, ${0.35 + 0.25 * Math.sin(time * 6)})`;
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = `rgba(255, 234, 0, ${0.30 + 0.20 * Math.sin(time * 6)})`;
+      ctx.lineWidth = 1.2;
       ctx.shadowColor = '#ffea00';
-      ctx.shadowBlur = 10;
-      ctx.setLineDash([6, 4]);
+      ctx.shadowBlur = 6;
+      ctx.setLineDash([4, 4]);
 
       ctx.beginPath();
       for (let i = 0; i < litHazards.length; i++) {
@@ -3560,19 +3557,19 @@ export class BumperQuestEngine {
       const isLit = h.isLit || this.litMultiplierIds.has(h.id);
       const color = h.hitGlow > 0 ? '#ffffff' : isLit ? '#ffea00' : h.color;
       ctx.strokeStyle = color;
-      ctx.lineWidth = isLit ? 3.5 : 2.5;
+      ctx.lineWidth = isLit ? 2.5 : 1.8;
       ctx.shadowColor = isLit ? '#ffea00' : h.color;
-      ctx.shadowBlur = 12 + h.hitGlow * 12 + (isLit ? 10 : 0);
+      ctx.shadowBlur = 8 + h.hitGlow * 10 + (isLit ? 8 : 0);
 
       // Rotating neon halo when lit in the matrix
       if (isLit) {
         ctx.strokeStyle = 'rgba(255, 234, 0, 0.4)';
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1.2;
         ctx.beginPath();
-        ctx.arc(0, 0, (h.radius || 24) + 8, 0, Math.PI * 2);
+        ctx.arc(0, 0, (h.radius || 12) + 4, 0, Math.PI * 2);
         ctx.stroke();
         ctx.strokeStyle = color;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2.2;
       }
 
       if (h.type === 'circle') {
@@ -3599,19 +3596,20 @@ export class BumperQuestEngine {
         ctx.fill();
         ctx.stroke();
       } else if (h.type === 'rectangle') {
-        const w = h.width || 60;
-        const ht = h.height || 18;
+        const w = h.width || 36;
+        const ht = h.height || 12;
         ctx.beginPath();
-        ctx.roundRect(-w / 2, -ht / 2, w, ht, 4);
+        ctx.roundRect ? ctx.roundRect(-w / 2, -ht / 2, w, ht, 3) : ctx.rect(-w / 2, -ht / 2, w, ht);
         ctx.fillStyle = isLit ? 'rgba(255, 234, 0, 0.35)' : 'rgba(255, 170, 0, 0.2)';
         ctx.fill();
         ctx.stroke();
       }
 
-      // Multiplier digit text
-      ctx.shadowBlur = isLit ? 10 : 0;
+      // Multiplier digit text (scaled to fit inside shape)
+      const fontSize = Math.max(6.5, Math.min(8.5, h.radius * 0.62));
+      ctx.shadowBlur = isLit ? 6 : 0;
       ctx.fillStyle = isLit ? '#ffea00' : '#ffffff';
-      ctx.font = '700 12px "Press Start 2P", monospace';
+      ctx.font = `700 ${fontSize}px "Press Start 2P", monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(`${h.multiplier}x`, 0, 0);
@@ -3743,17 +3741,25 @@ export class BumperQuestEngine {
   }
 
   private drawNotices(ctx: CanvasRenderingContext2D) {
+    const isNarrow = this.width < 500;
+    const fontPx = isNarrow ? 7.5 : 9;
+
     for (const n of this.notices) {
       const alpha = Math.max(0, 1 - (n.life / n.maxLife));
       ctx.save();
       ctx.globalAlpha = alpha;
-      ctx.font = '700 13px "Press Start 2P", monospace';
+      ctx.font = `700 ${fontPx}px "Press Start 2P", monospace`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
+
+      // Keep notice neatly bounded within playfield
+      const clampedX = Math.max(90, Math.min(this.width - 90, n.x));
+      const clampedY = Math.max(55, Math.min(this.height - 55, n.y));
+
       ctx.fillStyle = n.color;
       ctx.shadowColor = n.color;
-      ctx.shadowBlur = 12;
-      ctx.fillText(n.text, n.x, n.y);
+      ctx.shadowBlur = 8;
+      ctx.fillText(n.text, clampedX, clampedY);
       ctx.restore();
     }
   }
@@ -4490,91 +4496,82 @@ export class BumperQuestEngine {
 
     ctx.save();
 
-    if (this.gameState === 'wave_cleared') {
-      // Victory celebration banner overlay
-      ctx.fillStyle = 'rgba(5, 12, 10, 0.72)';
-      ctx.fillRect(0, h * 0.30, w, h * 0.38);
+    const cardW = Math.min(w * 0.85, 300);
+    const cardH = 74;
+    const cardX = w / 2 - cardW / 2;
+    const cardY = h * 0.44 - cardH / 2;
 
-      // Rainbow / neon border lines
-      const lineGlow = ctx.createLinearGradient(0, 0, w, 0);
-      lineGlow.addColorStop(0, '#00ff66');
-      lineGlow.addColorStop(0.5, '#00f3ff');
-      lineGlow.addColorStop(1, '#ff0055');
-      ctx.fillStyle = lineGlow;
-      ctx.fillRect(0, h * 0.30, w, 3);
-      ctx.fillRect(0, h * 0.68 - 3, w, 3);
+    if (this.gameState === 'wave_cleared') {
+      // Victory celebration floating glass card
+      ctx.fillStyle = 'rgba(5, 18, 12, 0.92)';
+      ctx.strokeStyle = '#00ff66';
+      ctx.lineWidth = 1.5;
+      ctx.shadowColor = '#00ff66';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(cardX, cardY, cardW, cardH, 8) : ctx.rect(cardX, cardY, cardW, cardH);
+      ctx.fill();
+      ctx.stroke();
 
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
       // Title
-      ctx.font = '900 24px "Press Start 2P", monospace';
+      ctx.font = '900 11px "Press Start 2P", monospace';
       ctx.fillStyle = '#00ff66';
-      ctx.shadowColor = '#00ff66';
-      ctx.shadowBlur = 16;
-      ctx.fillText(`★ WAVE ${this.wave} CLEARED! ★`, w / 2, h * 0.40);
-
-      // Subtitle
-      ctx.font = '700 13px "Press Start 2P", monospace';
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = '#ffffff';
       ctx.shadowBlur = 8;
-      ctx.fillText('ALL DOTS COLLECTED // TABLE CONQUERED', w / 2, h * 0.47);
+      ctx.fillText(`★ WAVE ${this.wave} CLEARED! ★`, w / 2, cardY + 18);
 
       // Bonus
       const bonus = 10000 * this.wave * this.currentMultiplier;
-      ctx.font = '700 12px "Press Start 2P", monospace';
+      ctx.font = '700 8px "Press Start 2P", monospace';
       ctx.fillStyle = '#ffaa00';
       ctx.shadowColor = '#ffaa00';
-      ctx.shadowBlur = 10;
-      ctx.fillText(`+${bonus.toLocaleString()} PTS WAVE BONUS!`, w / 2, h * 0.54);
+      ctx.shadowBlur = 5;
+      ctx.fillText(`+${bonus.toLocaleString()} PTS WAVE BONUS!`, w / 2, cardY + 38);
 
       // Countdown
       const secs = Math.max(1, Math.ceil(this.stateCountdown));
-      ctx.font = '700 11px monospace';
+      ctx.font = '700 7.5px "Press Start 2P", monospace';
       ctx.fillStyle = '#00f3ff';
-      ctx.shadowBlur = 6;
-      ctx.fillText(`NEXT WAVE STARTING IN ${secs}s...`, w / 2, h * 0.61);
+      ctx.shadowBlur = 5;
+      ctx.fillText(`NEXT WAVE IN ${secs}s...`, w / 2, cardY + 56);
 
     } else if (this.gameState === 'game_over') {
-      // Game Over / All Balls Drained overlay
-      ctx.fillStyle = 'rgba(15, 5, 8, 0.78)';
-      ctx.fillRect(0, h * 0.30, w, h * 0.38);
-
-      ctx.fillStyle = '#ff0055';
+      // Game Over floating glass card (unobtrusive, keeping playfield clear)
+      ctx.fillStyle = 'rgba(20, 5, 10, 0.92)';
+      ctx.strokeStyle = '#ff0055';
+      ctx.lineWidth = 1.5;
       ctx.shadowColor = '#ff0055';
-      ctx.shadowBlur = 14;
-      ctx.fillRect(0, h * 0.30, w, 3);
-      ctx.fillRect(0, h * 0.68 - 3, w, 3);
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.roundRect ? ctx.roundRect(cardX, cardY, cardW, cardH, 8) : ctx.rect(cardX, cardY, cardW, cardH);
+      ctx.fill();
+      ctx.stroke();
 
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
 
       // Title
-      ctx.font = '900 24px "Press Start 2P", monospace';
+      ctx.font = '900 11px "Press Start 2P", monospace';
       ctx.fillStyle = '#ff0055';
-      ctx.shadowBlur = 18;
-      ctx.fillText('ALL BALLS DRAINED', w / 2, h * 0.39);
+      ctx.shadowBlur = 8;
+      ctx.fillText('ALL BALLS DRAINED', w / 2, cardY + 18);
 
       // Subtitle
-      ctx.font = '700 12px "Press Start 2P", monospace';
+      ctx.font = '700 8px "Press Start 2P", monospace';
       ctx.fillStyle = '#ffffff';
       ctx.shadowColor = '#ffffff';
-      ctx.shadowBlur = 8;
-      ctx.fillText(`FINAL SCORE: ${this.score.toLocaleString()} (WAVE ${this.wave})`, w / 2, h * 0.47);
+      ctx.shadowBlur = 4;
+      ctx.fillText(`FINAL SCORE: ${this.score.toLocaleString()}`, w / 2, cardY + 38);
 
       // Self-playing reset countdown
       const secs = Math.max(1, Math.ceil(this.stateCountdown));
-      ctx.font = '700 13px "Press Start 2P", monospace';
+      ctx.font = '700 7.5px "Press Start 2P", monospace';
       ctx.fillStyle = '#00f3ff';
       ctx.shadowColor = '#00f3ff';
-      ctx.shadowBlur = 12;
-      ctx.fillText(`AUTO-RESET IN ${secs}...`, w / 2, h * 0.55);
-
-      ctx.font = '500 10px monospace';
-      ctx.fillStyle = 'rgba(148, 163, 184, 0.8)';
-      ctx.shadowBlur = 0;
-      ctx.fillText('ZERO-PLAYER SELF-PLAYING ARCADE // RESTARTING NEW ROUND', w / 2, h * 0.62);
+      ctx.shadowBlur = 5;
+      ctx.fillText(`AUTO-RESET IN ${secs}s...`, w / 2, cardY + 56);
     }
 
     ctx.restore();
