@@ -184,7 +184,6 @@ export const App: React.FC = () => {
           engineRef.current.tiltGravity = { x: gx, y: gy };
           if (e.alpha !== null) {
             setCompassAngle(e.alpha);
-            engineRef.current.compassRotation = e.alpha * 0.15; // subtle rotational warp
           }
         }
       }

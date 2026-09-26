@@ -2666,13 +2666,6 @@ export class BumperQuestEngine {
     ctx.fillStyle = '#050508';
     ctx.fillRect(0, 0, this.width, this.height);
 
-    // Apply compass orientation rotation if active
-    if (this.compassRotation !== 0) {
-      ctx.translate(this.width / 2, this.height / 2);
-      ctx.rotate((this.compassRotation * Math.PI) / 180);
-      ctx.translate(-this.width / 2, -this.height / 2);
-    }
-
     // 1. Draw psychedelic background theme
     this.drawBackground(ctx);
 
