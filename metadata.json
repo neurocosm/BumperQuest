@@ -1,0 +1,8 @@
+{
+  "name": "BumperQuest: Vector Ball & Spin-Vortex Auto-Arcade",
+  "description": "An ambient, self-playing arcade simulation and generative audio-visual sequencer fusing kinetic double-pinball, bumper pool, a central vinyl turntable scratch bumper, Tempest spider guardian, and 80s vector aesthetics.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
