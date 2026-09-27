@@ -551,6 +551,50 @@ export const HUD: React.FC<HUDProps> = ({
                 🤖 <b className="text-white">Self-Playing Kinetic Arcade:</b> Bumper Quest is completely autonomous! AI goalies pilot all 4 flippers and automatically launch new rounds upon ball drain. Watch the kinetic choreography unfold, or jump in with flipper keys / touch triggers anytime!
               </div>
 
+              {/* Group 0: Secret Manual Player Mode & Arcade Controls */}
+              <div className="space-y-2 p-3 rounded-xl bg-gradient-to-br from-purple-950/40 to-slate-900/60 border border-purple-500/40 shadow-inner">
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-purple-300 flex items-center justify-between border-b border-purple-500/30 pb-1.5">
+                  <span className="flex items-center gap-1.5"><span>🎮</span> SECRET MANUAL PLAYER MODE & CONTROLS</span>
+                  <span className="text-[9px] bg-purple-500/30 text-purple-200 px-1.5 py-0.5 rounded border border-purple-400/40">HOTKEYS</span>
+                </h4>
+                <div className="space-y-2 pl-1 text-[11px]">
+                  <div>
+                    <span className="text-purple-300 font-bold">• Manual Takeover (Press A or Toggle Bottom Bar):</span>
+                    <p className="text-slate-300 text-[11px] mt-0.5">Toggle between <b className="text-cyan-300">AUTO</b> and <b className="text-amber-300">MANUAL</b> anytime. In Manual mode, the AI steps aside so you have 100% control over flipper timing, trapping, and angle shots!</p>
+                  </div>
+                  <div>
+                    <span className="text-purple-300 font-bold">• Quad-Flipper Hotkeys:</span>
+                    <div className="grid grid-cols-2 gap-1.5 mt-1 text-[10px] font-mono">
+                      <div className="p-1.5 rounded bg-black/40 border border-slate-800 flex items-center justify-between">
+                        <span className="text-slate-400">Bottom-Left:</span>
+                        <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700 font-bold">Z / ←</kbd>
+                      </div>
+                      <div className="p-1.5 rounded bg-black/40 border border-slate-800 flex items-center justify-between">
+                        <span className="text-slate-400">Bottom-Right:</span>
+                        <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700 font-bold">/ / →</kbd>
+                      </div>
+                      <div className="p-1.5 rounded bg-black/40 border border-slate-800 flex items-center justify-between">
+                        <span className="text-slate-400">Top-Left:</span>
+                        <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700 font-bold">Q</kbd>
+                      </div>
+                      <div className="p-1.5 rounded bg-black/40 border border-slate-800 flex items-center justify-between">
+                        <span className="text-slate-400">Top-Right:</span>
+                        <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700 font-bold">P</kbd>
+                      </div>
+                    </div>
+                    <p className="text-slate-400 text-[10px] mt-1">Touch / Mouse: Tap any of the 4 screen corners to snap that corner's flipper.</p>
+                  </div>
+                  <div>
+                    <span className="text-purple-300 font-bold">• Table Nudge & Gyro Tilt (Spacebar or Tilt Pad):</span>
+                    <p className="text-slate-300 text-[11px] mt-0.5">Press <kbd className="px-1 rounded bg-slate-800 text-white border border-slate-700 text-[10px]">Space</kbd> or the bottom <b className="text-white">NUDGE</b> button to bump the table inertia. On mobile, activate <b className="text-cyan-300">Gyro Tilt</b> in Settings to physically tilt your phone!</p>
+                  </div>
+                  <div>
+                    <span className="text-purple-300 font-bold">• DJ Record Scratching (Mouse / Swipe):</span>
+                    <p className="text-slate-300 text-[11px] mt-0.5">Click and drag or swipe across the vinyl record to scratch, pitch-bend the sound synth, and whip trapped balls outward with centrifugal force.</p>
+                  </div>
+                </div>
+              </div>
+
               {/* Group 1: Turntable & Center Playfield */}
               <div className="space-y-2">
                 <h4 className="text-[11px] font-bold uppercase tracking-wider text-pink-400 flex items-center gap-1.5 border-b border-pink-500/20 pb-1">

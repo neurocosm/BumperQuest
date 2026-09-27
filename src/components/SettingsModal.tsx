@@ -205,6 +205,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
             </div>
           </div>
+
+          {/* Player Mode: Autonomous AI vs Secret Manual Control */}
+          <div className="flex items-center justify-between p-3 rounded-lg border border-purple-500/40 bg-purple-950/20">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs font-bold text-purple-300">Player Mode (Auto vs Manual)</span>
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-purple-500/20 text-purple-300 border border-purple-500/40 font-bold">KEY: A</span>
+              </div>
+              <p className="text-[11px] text-slate-300">
+                {settings.autoPilot
+                  ? 'AI pilots all 4 flippers autonomously. Switch to MANUAL to take 100% control with Z, /, Q, P or corner taps!'
+                  : 'MANUAL MODE ACTIVE: You control the flippers! AI assistance is turned off.'}
+              </p>
+            </div>
+            <button
+              onClick={() => onUpdateSettings({ autoPilot: !settings.autoPilot })}
+              className={`px-3 py-1.5 rounded text-xs font-mono font-bold transition-all cursor-pointer ${
+                settings.autoPilot
+                  ? 'bg-cyan-500 text-black shadow-md shadow-cyan-500/30'
+                  : 'bg-amber-400 text-black shadow-md shadow-amber-500/30 animate-pulse'
+              }`}
+            >
+              {settings.autoPilot ? 'AUTO PILOT' : 'MANUAL'}
+            </button>
+          </div>
+
           {/* Turntable Speed */}
           <div className="space-y-2">
             <label className="flex items-center gap-2 font-mono text-xs text-cyan-300 font-bold uppercase">
