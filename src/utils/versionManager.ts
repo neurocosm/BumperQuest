@@ -4,11 +4,15 @@
  * and performing a full cache dump and hard reload.
  */
 
-export const CURRENT_APP_VERSION = 'v1.09272026.1449';
+import { CURRENT_APP_VERSION, APP_VERSION_DATA, AppVersionMetadata } from '../version';
+
+export { CURRENT_APP_VERSION, APP_VERSION_DATA };
+export type { AppVersionMetadata };
 
 export interface VersionInfo {
   version: string;
   buildTime?: string;
+  timeZone?: string;
   notes?: string;
 }
 

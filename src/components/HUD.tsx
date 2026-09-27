@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import { GameSettings } from '../game/physics';
+import { APP_VERSION_DATA, CURRENT_APP_VERSION } from '../version';
 
 interface HUDProps {
   score: number;
@@ -557,6 +558,9 @@ export const HUD: React.FC<HUDProps> = ({
                 <h3 className="font-arcade text-cyan-300 text-xs sm:text-sm tracking-wide glow-cyan">
                   FIELD ATTRACTIONS & ELEMENTS
                 </h3>
+                <span className="hidden xs:inline-block font-mono text-[9px] px-1.5 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 font-bold">
+                  {CURRENT_APP_VERSION} ({APP_VERSION_DATA.timeZone})
+                </span>
               </div>
               <button
                 onClick={() => setShowHelp(false)}
@@ -720,9 +724,10 @@ export const HUD: React.FC<HUDProps> = ({
 
             {/* Sticky Footer with Clear 'Back to Gameplay' Action */}
             <div className="p-3 sm:p-4 bg-[#101426] border-t border-cyan-500/30 flex-shrink-0 flex items-center justify-between gap-3">
-              <span className="text-[10px] font-mono text-slate-400 hidden sm:inline">
-                Tap anywhere outside or press ESC to exit
-              </span>
+              <div className="hidden sm:flex flex-col text-[10px] font-mono text-slate-400">
+                <span className="text-cyan-400/90 font-bold">{CURRENT_APP_VERSION} ({APP_VERSION_DATA.timeZone})</span>
+                <span className="text-slate-500 text-[9px]">Tap anywhere outside or press ESC to exit</span>
+              </div>
               <button
                 onClick={() => setShowHelp(false)}
                 className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-cyan-500 hover:from-cyan-500 hover:to-cyan-400 text-white font-mono text-xs font-bold shadow-lg shadow-cyan-950/80 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer"

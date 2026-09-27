@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Sliders, Volume2, VolumeX, Disc, Eye, Zap, RefreshCw, AlertCircle, CheckCircle, ExternalLink, Sun } from 'lucide-react';
 import { GameSettings } from '../game/physics';
 import { soundSynth } from '../audio/SoundSynthesizer';
-import { CURRENT_APP_VERSION, checkForAppUpdate, dumpCachesAndReload, CheckUpdateResult } from '../utils/versionManager';
+import { CURRENT_APP_VERSION, APP_VERSION_DATA, checkForAppUpdate, dumpCachesAndReload, CheckUpdateResult } from '../utils/versionManager';
 
 export const APP_VERSION = CURRENT_APP_VERSION;
 
@@ -125,20 +125,25 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           <div className="p-3.5 rounded-lg border border-cyan-500/30 bg-cyan-950/20 space-y-2.5">
             <div className="flex items-center justify-between">
               <div>
-                <span className="font-mono text-xs font-bold text-cyan-300">System Build & Version</span>
-                <p className="text-[11px] text-slate-400 font-mono flex items-center gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-xs font-bold text-cyan-300">System Build & Version</span>
+                  <span className="px-1.5 py-0.2 rounded text-[9px] font-mono bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 font-bold">
+                    {APP_VERSION_DATA.timeZone}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-400 font-mono flex items-center gap-1 mt-0.5">
                   BumperQuest by:{' '}
                   <a
-                    href="https://www.instagram.com/tony_bostony/"
+                    href={APP_VERSION_DATA.authorUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-pink-400 hover:text-pink-300 underline font-bold inline-flex items-center gap-0.5 transition-colors cursor-pointer"
-                    title="Follow BostonyFX on Instagram"
+                    title={`Follow ${APP_VERSION_DATA.author} on Instagram`}
                   >
-                    BostonyFX
+                    {APP_VERSION_DATA.author}
                     <ExternalLink className="w-2.5 h-2.5" />
                   </a>
-                  {' '}• Eastern USA (24h)
+                  {' '}• Eastern USA (EDT/EST)
                 </p>
               </div>
               {updateResult?.hasUpdate ? (
@@ -156,6 +161,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </span>
               )}
             </div>
+
+            {/* Build notes merged from single source */}
+            {APP_VERSION_DATA.notes && (
+              <p className="text-[10.5px] text-slate-400 font-mono italic leading-relaxed border-t border-cyan-500/15 pt-1.5">
+                "{APP_VERSION_DATA.notes}"
+              </p>
+            )}
 
             {/* Status details & Cache Dump Button */}
             <div className="flex items-center justify-between pt-2 border-t border-cyan-500/15 text-[11px] font-mono">
