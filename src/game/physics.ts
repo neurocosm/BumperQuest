@@ -1053,6 +1053,72 @@ export class BumperQuestEngine {
     }
   }
 
+  /**
+   * Checks if an (x, y) coordinate is on or immediately adjacent to a flipper,
+   * OR on the 4 corner interactive gadgets which serve as flipper trigger buttons:
+   * - Top-Left Rotary Saw -> Triggers Top-Left Flipper (TL)
+   * - Top-Right Stasis Ball Trapper -> Triggers Top-Right Flipper (TR)
+   * - Bottom-Left Spiked Pinwheel -> Triggers Bottom-Left Flipper (BL)
+   * - Bottom-Right Spiked Pinwheel -> Triggers Bottom-Right Flipper (BR)
+   * Returns the flipper object if matched, or null otherwise.
+   */
+  public hitTestFlipper(x: number, y: number): Flipper | null {
+    // 1. Direct hit test on flipper blades & pivot posts
+    for (const f of this.flippers) {
+      const fx2 = f.pivotX + Math.cos(f.currentAngle) * f.length;
+      const fy2 = f.pivotY + Math.sin(f.currentAngle) * f.length;
+      const seg = this.distToSegment(x, y, f.pivotX, f.pivotY, fx2, fy2);
+      // Generous, comfortable tap target zone (28px radius around flipper blade & pivot)
+      if (seg.distance <= 28) {
+        return f;
+      }
+    }
+
+    // 2. Corner Radical Gadgets as Touch / Click Flipper Trigger Buttons:
+    // Comfortable touch target radius: 36px radius around gadget center
+    const targetRadius = 36;
+
+    // Top-Left: Rotary Saw Blade -> TL Flipper
+    if (this.slicer) {
+      const distTL = Math.hypot(x - this.slicer.x, y - this.slicer.y);
+      if (distTL <= Math.max(targetRadius, this.slicer.radius + 18)) {
+        this.slicer.activeGlow = 1.0;
+        return this.flippers.find(f => f.id === 'TL') || null;
+      }
+    }
+
+    // Top-Right: Stasis Chamber Ball Trapper -> TR Flipper
+    if (this.stasisChamber) {
+      const distTR = Math.hypot(x - this.stasisChamber.x, y - this.stasisChamber.y);
+      if (distTR <= Math.max(targetRadius, this.stasisChamber.radius + 18)) {
+        this.stasisChamber.activeGlow = 1.0;
+        return this.flippers.find(f => f.id === 'TR') || null;
+      }
+    }
+
+    // Bottom-Left: Radical Spiked Pinwheel -> BL Flipper
+    const leftPinwheel = this.pinwheels.find(p => p.id === 'left');
+    if (leftPinwheel) {
+      const distBL = Math.hypot(x - leftPinwheel.x, y - leftPinwheel.y);
+      if (distBL <= Math.max(targetRadius, leftPinwheel.radius + leftPinwheel.spikeLength + 14)) {
+        leftPinwheel.hitGlow = 1.0;
+        return this.flippers.find(f => f.id === 'BL') || null;
+      }
+    }
+
+    // Bottom-Right: Radical Spiked Pinwheel -> BR Flipper
+    const rightPinwheel = this.pinwheels.find(p => p.id === 'right');
+    if (rightPinwheel) {
+      const distBR = Math.hypot(x - rightPinwheel.x, y - rightPinwheel.y);
+      if (distBR <= Math.max(targetRadius, rightPinwheel.radius + rightPinwheel.spikeLength + 14)) {
+        rightPinwheel.hitGlow = 1.0;
+        return this.flippers.find(f => f.id === 'BR') || null;
+      }
+    }
+
+    return null;
+  }
+
   // --- MAIN SIMULATION LOOP ---
   public start() {
     this.lastTime = performance.now();
@@ -3951,15 +4017,35 @@ export class BumperQuestEngine {
       ctx.fillStyle = isGlowing ? '#ffffff' : '#e2e8f0';
       ctx.fill();
 
-      ctx.restore();
+      // Inconspicuous flipper key label: ONLY rendered in MANUAL mode
+      // Positioned clearly at the thickest part of the red/blue flipper blade just ahead of the pivot anchor
+      if (!this.settings.autoPilot) {
+        ctx.save();
+        // Offset along the flipper blade axis to where it is widest and solidly colored (between rBase and tip)
+        const labelX = rBase * 1.35;
+        ctx.translate(labelX, 0);
+        // Counter-rotate text so the letter remains upright regardless of the flipper's current angle
+        ctx.rotate(-f.currentAngle);
 
-      // Key label badge positioned cleanly above/below pivot anchor
-      ctx.save();
-      ctx.font = '700 10.5px monospace';
-      ctx.fillStyle = isGlowing ? '#ffffff' : 'rgba(255, 255, 255, 0.7)';
-      ctx.textAlign = 'center';
-      const labelOffsetY = (f.id === 'TL' || f.id === 'TR') ? 16 : -14;
-      ctx.fillText(f.label, f.pivotX, f.pivotY + labelOffsetY);
+        // Circular background pill to guarantee high contrast against red or blue flipper body
+        ctx.beginPath();
+        ctx.arc(0, 0, 7.5, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        ctx.font = '900 9.5px "Space Mono", monospace';
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = '#000000';
+        ctx.shadowBlur = 3;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(f.label, 0, 0.5);
+        ctx.restore();
+      }
+
       ctx.restore();
     }
   }
@@ -4520,11 +4606,29 @@ export class BumperQuestEngine {
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Center glowing core pip
-      ctx.beginPath();
-      ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
-      ctx.fillStyle = p.hitGlow > 0 ? '#ffffff' : color;
-      ctx.fill();
+      // Center glowing core pip / Manual mode trigger button badge
+      if (!this.settings.autoPilot) {
+        ctx.beginPath();
+        ctx.arc(0, 0, Math.max(7, p.radius * 0.48), 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.fill();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+
+        ctx.font = '900 8.5px "Space Mono", monospace';
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = '#000000';
+        ctx.shadowBlur = 4;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(p.id === 'left' ? 'Z' : 'C', 0, 0.5);
+      } else {
+        ctx.beginPath();
+        ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
+        ctx.fillStyle = p.hitGlow > 0 ? '#ffffff' : color;
+        ctx.fill();
+      }
 
       ctx.restore();
     }
@@ -4783,11 +4887,29 @@ export class BumperQuestEngine {
       ctx.fill();
       ctx.stroke();
 
-      // Spindle center hole
-      ctx.fillStyle = '#080c14';
-      ctx.beginPath();
-      ctx.arc(0, 0, s.radius * 0.08, 0, Math.PI * 2);
-      ctx.fill();
+      // Spindle center hole / Manual Mode trigger button badge
+      if (!this.settings.autoPilot) {
+        ctx.beginPath();
+        ctx.arc(0, 0, Math.max(7, s.radius * 0.45), 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+        ctx.fill();
+        ctx.strokeStyle = '#00f3ff';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+
+        ctx.font = '900 8.5px "Space Mono", monospace';
+        ctx.fillStyle = '#ffffff';
+        ctx.shadowColor = '#00f3ff';
+        ctx.shadowBlur = 4;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('Q', 0, 0.5);
+      } else {
+        ctx.fillStyle = '#080c14';
+        ctx.beginPath();
+        ctx.arc(0, 0, s.radius * 0.08, 0, Math.PI * 2);
+        ctx.fill();
+      }
 
       ctx.restore(); // restore rotation
 
@@ -4916,14 +5038,32 @@ export class BumperQuestEngine {
           ctx.fill();
         }
 
-        // Glowing countdown timer in center
-        ctx.font = '900 8.5px "Press Start 2P", monospace';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillStyle = '#ffea00';
-        ctx.shadowColor = '#ffea00';
-        ctx.shadowBlur = 8;
-        ctx.fillText(`${Math.ceil(minTimer)}s`, 0, 0);
+        // Glowing countdown timer in center / Manual mode badge
+        if (!this.settings.autoPilot) {
+          ctx.beginPath();
+          ctx.arc(0, 0, Math.max(7, sc.radius * 0.42), 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+          ctx.fill();
+          ctx.strokeStyle = '#c084fc';
+          ctx.lineWidth = 1.4;
+          ctx.stroke();
+
+          ctx.font = '900 8.5px "Space Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowColor = '#a855f7';
+          ctx.shadowBlur = 4;
+          ctx.fillText('E', 0, 0.5);
+        } else {
+          ctx.font = '900 8.5px "Press Start 2P", monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#ffea00';
+          ctx.shadowColor = '#ffea00';
+          ctx.shadowBlur = 8;
+          ctx.fillText(`${Math.ceil(minTimer)}s`, 0, 0);
+        }
 
         // Status labels beneath
         const isNarrow = this.width < 500;
@@ -4935,15 +5075,33 @@ export class BumperQuestEngine {
         ctx.fillStyle = '#38bdf8';
         ctx.fillText(isNarrow ? 'TARGET: LP' : 'TARGET: VINYL', 0, sc.radius + (isNarrow ? 19 : 24));
       } else {
-        // Idle pulsing target reticle
-        ctx.strokeStyle = `rgba(168, 85, 247, ${0.5 + 0.3 * Math.sin(time * 6)})`;
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(-8, 0);
-        ctx.lineTo(8, 0);
-        ctx.moveTo(0, -8);
-        ctx.lineTo(0, 8);
-        ctx.stroke();
+        // Idle pulsing target reticle / Manual mode trigger button badge
+        if (!this.settings.autoPilot) {
+          ctx.beginPath();
+          ctx.arc(0, 0, Math.max(7, sc.radius * 0.42), 0, Math.PI * 2);
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+          ctx.fill();
+          ctx.strokeStyle = '#c084fc';
+          ctx.lineWidth = 1.4;
+          ctx.stroke();
+
+          ctx.font = '900 8.5px "Space Mono", monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#ffffff';
+          ctx.shadowColor = '#a855f7';
+          ctx.shadowBlur = 4;
+          ctx.fillText('E', 0, 0.5);
+        } else {
+          ctx.strokeStyle = `rgba(168, 85, 247, ${0.5 + 0.3 * Math.sin(time * 6)})`;
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(-8, 0);
+          ctx.lineTo(8, 0);
+          ctx.moveTo(0, -8);
+          ctx.lineTo(0, 8);
+          ctx.stroke();
+        }
 
         const isNarrow = this.width < 500;
         ctx.font = `700 ${isNarrow ? '5px' : '6px'} "Press Start 2P", monospace`;

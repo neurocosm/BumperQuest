@@ -279,16 +279,35 @@ export const App: React.FC = () => {
   // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore key events when user is typing in any input field or textarea
+      if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') {
+        return;
+      }
+
       handleUserInteraction();
       if (!engineRef.current) return;
 
+      // Flipper controls (Q, E, Z, C)
       if (e.code === 'KeyQ') engineRef.current.triggerFlipper('TL');
       if (e.code === 'KeyE') engineRef.current.triggerFlipper('TR');
       if (e.code === 'KeyZ') engineRef.current.triggerFlipper('BL');
       if (e.code === 'KeyC') engineRef.current.triggerFlipper('BR');
 
-      // Arrow keys keyboard tilt
-      if (e.code === 'ArrowLeft' || e.code === 'KeyA') {
+      // 'A' key: Instant toggle between Autonomous Pilot and Manual Mode
+      if (e.code === 'KeyA') {
+        e.preventDefault();
+        setSettings(prev => {
+          const nextAuto = !prev.autoPilot;
+          if (engineRef.current) {
+            engineRef.current.settings.autoPilot = nextAuto;
+          }
+          return { ...prev, autoPilot: nextAuto };
+        });
+        return;
+      }
+
+      // Arrow keys keyboard table nudge / tilt
+      if (e.code === 'ArrowLeft') {
         engineRef.current.tiltGravity.x = -0.3;
         setTilt(prev => ({ ...prev, x: -0.3 }));
       }
@@ -322,7 +341,7 @@ export const App: React.FC = () => {
       if (e.code === 'KeyZ') engineRef.current.releaseFlipper('BL');
       if (e.code === 'KeyC') engineRef.current.releaseFlipper('BR');
 
-      if (['ArrowLeft', 'ArrowRight', 'KeyA', 'KeyD'].includes(e.code)) {
+      if (['ArrowLeft', 'ArrowRight', 'KeyD'].includes(e.code)) {
         engineRef.current.tiltGravity.x = 0;
         setTilt(prev => ({ ...prev, x: 0 }));
       }
@@ -340,6 +359,44 @@ export const App: React.FC = () => {
     };
   }, [handleUserInteraction]);
 
+  // Pointer down directly on canvas: check if clicking/pressing a flipper directly
+  const activePointerFlipperRef = useRef<Map<number, 'TL' | 'TR' | 'BL' | 'BR'>>(new Map());
+
+  const handleCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    handleUserInteraction();
+    if (!engineRef.current || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Check if directly clicking/touching one of the 4 flippers!
+    const hitFlipper = engineRef.current.hitTestFlipper(x, y);
+    if (hitFlipper) {
+      engineRef.current.triggerFlipper(hitFlipper.id as 'TL' | 'TR' | 'BL' | 'BR');
+      activePointerFlipperRef.current.set(e.pointerId, hitFlipper.id as 'TL' | 'TR' | 'BL' | 'BR');
+      (e.target as HTMLElement)?.setPointerCapture?.(e.pointerId);
+      return;
+    }
+  };
+
+  const handleCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!engineRef.current) return;
+    const flipperId = activePointerFlipperRef.current.get(e.pointerId);
+    if (flipperId) {
+      engineRef.current.releaseFlipper(flipperId);
+      activePointerFlipperRef.current.delete(e.pointerId);
+    }
+  };
+
+  const handleCanvasPointerCancel = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!engineRef.current) return;
+    const flipperId = activePointerFlipperRef.current.get(e.pointerId);
+    if (flipperId) {
+      engineRef.current.releaseFlipper(flipperId);
+      activePointerFlipperRef.current.delete(e.pointerId);
+    }
+  };
+
   // Click on canvas to spawn ball at pointer or bump
   const handleCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     handleUserInteraction();
@@ -347,6 +404,11 @@ export const App: React.FC = () => {
     const rect = canvasRef.current.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
+
+    // If click was on a flipper, don't spawn balls
+    if (engineRef.current.hitTestFlipper(x, y)) {
+      return;
+    }
 
     // Check if clicked near needle arm
     const arm = engineRef.current.needleArm;
@@ -516,9 +578,12 @@ export const App: React.FC = () => {
       {/* Simulation Canvas */}
       <canvas
         ref={canvasRef}
+        onPointerDown={handleCanvasPointerDown}
+        onPointerUp={handleCanvasPointerUp}
+        onPointerCancel={handleCanvasPointerCancel}
         onClick={handleCanvasClick}
         onTouchStart={handleCanvasTouchStart}
-        className="w-full h-full block cursor-crosshair"
+        className="w-full h-full block cursor-crosshair touch-none"
       />
 
       {/* Prominent Tap to Unmute Banner (if browser blocked autoplay before user gesture) */}

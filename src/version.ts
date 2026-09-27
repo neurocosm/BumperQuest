@@ -17,10 +17,10 @@ export interface AppVersionMetadata {
 }
 
 export const APP_VERSION_DATA: AppVersionMetadata = {
-  version: 'v1.09272026.1755',
-  buildTime: '2026-09-27T17:55:00-04:00', // Eastern Time (EDT: UTC-4, EST: UTC-5)
+  version: 'v1.09272026.1825',
+  buildTime: '2026-09-27T18:25:00-04:00', // Eastern Time (EDT: UTC-4, EST: UTC-5)
   timeZone: 'EDT',
-  notes: 'Unified single-source versioning system with automated Eastern Time (EDT/EST) daylight saving awareness and synchronized version displays across all modals and HUDs.',
+  notes: 'Transformed the corner gadgets into physical flipper triggers for mobile & touch play: Top-Left Rotary Saw triggers TL flipper, Top-Right Ball Trapper triggers TR flipper, and the Bottom Corner Spiked Pinwheels trigger the BL and BR flippers.',
   author: 'BostonyFX',
   authorUrl: 'https://www.instagram.com/tony_bostony/',
 };

@@ -458,18 +458,19 @@ export const HUD: React.FC<HUDProps> = ({
 
             <div className="w-[1px] h-4 bg-slate-700 mx-0.5" />
 
-            {/* Auto-Pilot Toggle */}
+            {/* Auto-Pilot / Manual Player Mode Toggle */}
             <button
               onClick={onToggleAutoPilot}
-              title={settings.autoPilot ? 'Pause AI Goalie' : 'Resume AI Goalie'}
-              className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-mono transition-all ${
+              title={settings.autoPilot ? 'Switch to Manual Mode (Hotkeys: A, Q, E, Z, C)' : 'Resume AI Auto-Pilot (Hotkey: A)'}
+              className={`flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-mono transition-all font-semibold ${
                 settings.autoPilot
-                  ? 'bg-green-600/20 border-green-500/50 text-green-300'
-                  : 'bg-amber-600/20 border-amber-500/50 text-amber-300'
+                  ? 'bg-green-600/20 border-green-500/50 text-green-300 hover:bg-green-600/30'
+                  : 'bg-amber-600/30 border-amber-400 text-amber-300 shadow-md shadow-amber-950/60 hover:bg-amber-600/40'
               }`}
             >
               {settings.autoPilot ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
-              <span className="hidden sm:inline">{settings.autoPilot ? 'AI Active' : 'Manual'}</span>
+              <span>{settings.autoPilot ? 'AI Active' : 'Manual Mode'}</span>
+              <kbd className="hidden sm:inline px-1 rounded bg-black/40 text-[9px] border border-white/20">A</kbd>
             </button>
 
             {/* Theme Cycler */}
@@ -501,43 +502,6 @@ export const HUD: React.FC<HUDProps> = ({
           </div>
         </div>
       </footer>
-
-      {/* Manual Touch Flipper Triggers (Sleek Minimal Rings on Mobile in Manual Mode) */}
-      {!settings.autoPilot && (
-        <div className="absolute inset-0 pointer-events-none z-20">
-          <button
-            onPointerDown={() => onTriggerFlipper('TL')}
-            onPointerUp={() => onReleaseFlipper('TL')}
-            className="absolute top-12 left-2 w-12 h-12 rounded-full border border-cyan-400/30 bg-cyan-950/20 text-cyan-300 font-arcade text-[10px] flex items-center justify-center pointer-events-auto active:bg-cyan-500 active:text-black transition-all shadow-md shadow-cyan-500/10"
-          >
-            Q
-          </button>
-
-          <button
-            onPointerDown={() => onTriggerFlipper('TR')}
-            onPointerUp={() => onReleaseFlipper('TR')}
-            className="absolute top-12 right-2 w-12 h-12 rounded-full border border-cyan-400/30 bg-cyan-950/20 text-cyan-300 font-arcade text-[10px] flex items-center justify-center pointer-events-auto active:bg-cyan-500 active:text-black transition-all shadow-md shadow-cyan-500/10"
-          >
-            E
-          </button>
-
-          <button
-            onPointerDown={() => onTriggerFlipper('BL')}
-            onPointerUp={() => onReleaseFlipper('BL')}
-            className="absolute bottom-10 left-2 w-12 h-12 rounded-full border border-cyan-400/30 bg-cyan-950/20 text-cyan-300 font-arcade text-[10px] flex items-center justify-center pointer-events-auto active:bg-cyan-500 active:text-black transition-all shadow-md shadow-cyan-500/10"
-          >
-            Z
-          </button>
-
-          <button
-            onPointerDown={() => onTriggerFlipper('BR')}
-            onPointerUp={() => onReleaseFlipper('BR')}
-            className="absolute bottom-10 right-2 w-12 h-12 rounded-full border border-cyan-400/30 bg-cyan-950/20 text-cyan-300 font-arcade text-[10px] flex items-center justify-center pointer-events-auto active:bg-cyan-500 active:text-black transition-all shadow-md shadow-cyan-500/10"
-          >
-            C
-          </button>
-        </div>
-      )}
 
       {/* How to Play / Field Elements Guide Modal */}
       {showHelp && (
@@ -592,23 +556,34 @@ export const HUD: React.FC<HUDProps> = ({
                     <span className="text-purple-300 font-bold">• Quad-Flipper Hotkeys:</span>
                     <div className="grid grid-cols-2 gap-1.5 mt-1 text-[10px] font-mono">
                       <div className="p-1.5 rounded bg-black/40 border border-slate-800 flex items-center justify-between">
-                        <span className="text-slate-400">Bottom-Left:</span>
-                        <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700 font-bold">Z / ←</kbd>
-                      </div>
-                      <div className="p-1.5 rounded bg-black/40 border border-slate-800 flex items-center justify-between">
-                        <span className="text-slate-400">Bottom-Right:</span>
-                        <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700 font-bold">/ / →</kbd>
-                      </div>
-                      <div className="p-1.5 rounded bg-black/40 border border-slate-800 flex items-center justify-between">
                         <span className="text-slate-400">Top-Left:</span>
                         <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700 font-bold">Q</kbd>
                       </div>
                       <div className="p-1.5 rounded bg-black/40 border border-slate-800 flex items-center justify-between">
                         <span className="text-slate-400">Top-Right:</span>
-                        <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700 font-bold">P</kbd>
+                        <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 border border-slate-700 font-bold">E</kbd>
+                      </div>
+                      <div className="p-1.5 rounded bg-black/40 border border-slate-800 flex items-center justify-between">
+                        <span className="text-slate-400">Bottom-Left:</span>
+                        <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700 font-bold">Z</kbd>
+                      </div>
+                      <div className="p-1.5 rounded bg-black/40 border border-slate-800 flex items-center justify-between">
+                        <span className="text-slate-400">Bottom-Right:</span>
+                        <kbd className="px-1.5 py-0.5 rounded bg-slate-800 text-amber-300 border border-slate-700 font-bold">C</kbd>
                       </div>
                     </div>
-                    <p className="text-slate-400 text-[10px] mt-1">Touch / Mouse: Tap any of the 4 screen corners to snap that corner's flipper.</p>
+                    <p className="text-slate-400 text-[10px] mt-1">
+                      <b className="text-white">Desktop Hotkey Lettering:</b> Key labels (<span className="text-white font-mono font-bold">Q, E, Z, C</span>) are embedded crisply on each flipper blade, active during Manual Mode.
+                    </p>
+                    <p className="text-slate-300 text-[10.5px] mt-1.5 p-2 rounded bg-cyan-950/30 border border-cyan-500/20">
+                      <b className="text-cyan-300">🔥 Radical Corner Gadgets ARE The Flipper Triggers:</b><br />
+                      On mobile and touch devices, tap or press and hold the 4 corner table mechanisms directly:<br />
+                      • <b className="text-cyan-300">Top-Left Rotary Saw</b> triggers Top-Left flipper (<kbd className="font-mono text-cyan-200">Q</kbd>)<br />
+                      • <b className="text-purple-300">Top-Right Ball Trapper</b> triggers Top-Right flipper (<kbd className="font-mono text-purple-200">E</kbd>)<br />
+                      • <b className="text-amber-300">Bottom-Left Spiked Pinwheel</b> triggers Bottom-Left flipper (<kbd className="font-mono text-amber-200">Z</kbd>)<br />
+                      • <b className="text-cyan-300">Bottom-Right Spiked Pinwheel</b> triggers Bottom-Right flipper (<kbd className="font-mono text-cyan-200">C</kbd>)<br />
+                      <span className="text-slate-400 text-[10px] mt-1 inline-block">Hold to trap the ball, release to snap back down! You can also tap flipper blades directly.</span>
+                    </p>
                   </div>
                   <div>
                     <span className="text-purple-300 font-bold">• Table Nudge & Gyro Tilt (Spacebar or Tilt Pad):</span>
