@@ -24,7 +24,9 @@ export interface CheckUpdateResult {
  */
 export async function checkForAppUpdate(): Promise<CheckUpdateResult> {
   try {
-    const res = await fetch(`/version.json?_t=${Date.now()}`, {
+    const baseUrl = import.meta.env.BASE_URL || './';
+    const cleanBase = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`;
+    const res = await fetch(`${cleanBase}version.json?_t=${Date.now()}`, {
       cache: 'no-store',
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
