@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Sliders, Volume2, VolumeX, Disc, Eye, Zap, RefreshCw, AlertCircle, CheckCircle } from 'lucide-react';
+import { X, Sliders, Volume2, VolumeX, Disc, Eye, Zap, RefreshCw, AlertCircle, CheckCircle, ExternalLink } from 'lucide-react';
 import { GameSettings } from '../game/physics';
 import { soundSynth } from '../audio/SoundSynthesizer';
 import { CURRENT_APP_VERSION, checkForAppUpdate, dumpCachesAndReload, CheckUpdateResult } from '../utils/versionManager';
@@ -31,9 +31,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
   const [updateResult, setUpdateResult] = useState<CheckUpdateResult | null>(knownUpdate ?? null);
   const [isDumping, setIsDumping] = useState(false);
+  const [showConfirmFlush, setShowConfirmFlush] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
+      setShowConfirmFlush(false);
       setIsCheckingUpdate(true);
       checkForAppUpdate()
         .then((res) => {
@@ -124,7 +126,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 <span className="font-mono text-xs font-bold text-cyan-300">System Build & Version</span>
-                <p className="text-[11px] text-slate-400 font-mono">BumperQuest by: BostonyFX • Eastern USA (24h)</p>
+                <p className="text-[11px] text-slate-400 font-mono flex items-center gap-1">
+                  BumperQuest by:{' '}
+                  <a
+                    href="https://www.instagram.com/tony_bostony/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-pink-400 hover:text-pink-300 underline font-bold inline-flex items-center gap-0.5 transition-colors cursor-pointer"
+                    title="Follow BostonyFX on Instagram"
+                  >
+                    BostonyFX
+                    <ExternalLink className="w-2.5 h-2.5" />
+                  </a>
+                  {' '}• Eastern USA (24h)
+                </p>
               </div>
               {updateResult?.hasUpdate ? (
                 <button
@@ -161,14 +176,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </span>
               )}
 
-              <button
-                onClick={handlePerformUpdate}
-                disabled={isDumping}
-                title="Dump all caches, unregister service workers, and force browser reload"
-                className="text-slate-400 hover:text-cyan-300 underline decoration-slate-600 hover:decoration-cyan-400 transition-colors cursor-pointer text-[10.5px]"
-              >
-                {isDumping ? 'Dumping cache...' : 'Force Dump & Reload'}
-              </button>
+              {!showConfirmFlush ? (
+                <button
+                  onClick={() => setShowConfirmFlush(true)}
+                  disabled={isDumping}
+                  title="Flush and reload the latest build"
+                  className="text-slate-400 hover:text-cyan-300 underline decoration-slate-600 hover:decoration-cyan-400 transition-colors cursor-pointer text-[10.5px]"
+                >
+                  {isDumping ? 'Flushing cache...' : 'Flush & Reload'}
+                </button>
+              ) : (
+                <div className="flex items-center gap-1.5 animate-in fade-in">
+                  <span className="text-amber-300 text-[10px] font-bold">Flush caches?</span>
+                  <button
+                    onClick={handlePerformUpdate}
+                    disabled={isDumping}
+                    className="px-2 py-0.5 rounded bg-amber-400 hover:bg-amber-300 text-black text-[10px] font-bold font-arcade cursor-pointer shadow-sm transition-all"
+                  >
+                    {isDumping ? 'FLUSHING...' : 'OK'}
+                  </button>
+                  <button
+                    onClick={() => setShowConfirmFlush(false)}
+                    className="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           {/* Turntable Speed */}
@@ -240,29 +274,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </p>
           </div>
 
-          {/* Tilt Sensitivity */}
-          <div className="space-y-2">
+          {/* Tilt Sensitivity & Gyro Enable Toggle */}
+          <div className="space-y-2 p-3 rounded-lg border border-slate-700 bg-slate-900/40">
             <div className="flex items-center justify-between">
-              <label className="font-mono text-xs text-green-300 font-bold uppercase">
-                Gyroscope / Kinetic Tilt Force
-              </label>
-              <span className="font-mono text-xs text-slate-300">
-                {settings.tiltSensitivity.toFixed(1)}x
-              </span>
+              <div>
+                <span className="font-mono text-xs font-bold text-green-300 uppercase">Phone Motion / Gyroscope Tilt</span>
+                <p className="text-[11px] text-slate-400">Tilt phone to kinetically nudge pinballs (Off by default for level table play)</p>
+              </div>
+              <button
+                onClick={() => onUpdateSettings({ gyroTiltEnabled: !settings.gyroTiltEnabled })}
+                className={`px-3 py-1 rounded text-xs font-mono font-bold transition-all ${
+                  settings.gyroTiltEnabled
+                    ? 'bg-green-500/20 text-green-300 border border-green-500/50 hover:bg-green-500/30'
+                    : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'
+                }`}
+              >
+                {settings.gyroTiltEnabled ? 'ACTIVE (ON)' : 'LEVEL (OFF)'}
+              </button>
             </div>
-            <input
-              type="range"
-              min={0.2}
-              max={2.5}
-              step={0.1}
-              value={settings.tiltSensitivity}
-              onChange={(e) => onUpdateSettings({ tiltSensitivity: parseFloat(e.target.value) })}
-              className="w-full accent-green-400 bg-slate-800 h-2 rounded-lg cursor-pointer"
-            />
+
+            {settings.gyroTiltEnabled && (
+              <div className="pt-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="font-mono text-[11px] text-slate-300">
+                    Tilt Force Sensitivity
+                  </label>
+                  <span className="font-mono text-[11px] text-green-400 font-bold">
+                    {settings.tiltSensitivity.toFixed(1)}x
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0.2}
+                  max={2.5}
+                  step={0.1}
+                  value={settings.tiltSensitivity}
+                  onChange={(e) => onUpdateSettings({ tiltSensitivity: parseFloat(e.target.value) })}
+                  className="w-full accent-green-400 bg-slate-800 h-2 rounded-lg cursor-pointer"
+                />
+              </div>
+            )}
+
             {onRequestSensorPermission && (
               <button
                 onClick={onRequestSensorPermission}
-                className="text-xs text-cyan-400 underline font-mono hover:text-cyan-300 block"
+                className="text-xs text-cyan-400 underline font-mono hover:text-cyan-300 block pt-1"
               >
                 Request Phone Motion / Orientation Access
               </button>

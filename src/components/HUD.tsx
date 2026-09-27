@@ -94,8 +94,11 @@ export const HUD: React.FC<HUDProps> = ({
 
   // User-controlled Letterboard Stats visibility toggle via the Eyeball button
   // Persisted in localStorage so player preference is remembered across refreshes
+  // Defaults to hidden (true) once gameplay commences for a clean, minimalist experience
   const [isLetterboardHidden, setIsLetterboardHidden] = useState<boolean>(() => {
-    return localStorage.getItem('bq_hide_letterboard') === 'true';
+    const saved = localStorage.getItem('bq_hide_letterboard');
+    if (saved !== null) return saved === 'true';
+    return true;
   });
 
   const hideLetterboard = useCallback(() => {
@@ -139,16 +142,16 @@ export const HUD: React.FC<HUDProps> = ({
 
   return (
     <>
-      {/* Floating Eyeball Toggle when Letterboard Stats are hidden (centered at top, clear of corner gadgets) */}
+      {/* Floating Eyeball Toggle when Letterboard Stats are hidden (moved to top-right corner as a compact circular icon, clear of gameplay and beyond the capture chamber) */}
       {isLetterboardHidden && (
-        <div className="absolute top-2 left-1/2 -translate-x-1/2 z-40 pointer-events-auto animate-in fade-in duration-300">
+        <div className="absolute top-2 right-2 z-40 pointer-events-auto animate-in fade-in duration-300">
           <button
             onClick={showLetterboard}
+            aria-label="Show Letterboard Stats"
             title="Show Letterboard Stats (Click to restore top bar)"
-            className="p-1 sm:p-1.5 rounded-full bg-[#0a0c16]/95 hover:bg-[#12162a] text-cyan-400 hover:text-white border border-cyan-500/60 backdrop-blur-md shadow-xl shadow-cyan-950/90 transition-all hover:scale-105 active:scale-95 flex items-center gap-1.5 px-3"
+            className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-[#0a0c16]/90 hover:bg-[#12162a] text-cyan-400 hover:text-white border border-cyan-500/60 backdrop-blur-md shadow-lg shadow-cyan-950/80 transition-all hover:scale-110 active:scale-95 flex items-center justify-center cursor-pointer"
           >
-            <Eye className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-            <span className="text-[9.5px] font-mono text-cyan-300 font-bold tracking-wider">SHOW STATS</span>
+            <Eye className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-cyan-400 animate-pulse" />
           </button>
         </div>
       )}
@@ -164,11 +167,8 @@ export const HUD: React.FC<HUDProps> = ({
         {/* Left: Minimal Title & Auto Mode */}
         <div className="flex items-center gap-1 sm:gap-2 pointer-events-auto flex-shrink-0">
           <div className="flex items-center gap-1 sm:gap-1.5">
-            <span className="font-arcade text-[10px] sm:text-xs text-cyan-400 tracking-wider glow-cyan">
-              BQ
-            </span>
-            <span className="hidden md:inline font-arcade text-xs text-cyan-400 tracking-wider glow-cyan">
-              QUEST
+            <span className="font-arcade text-[10px] sm:text-xs text-cyan-400 tracking-wider glow-cyan font-bold">
+              BUMPERQUEST
             </span>
             <span className="hidden sm:inline text-[9px] font-mono px-1 py-0.2 rounded bg-pink-500/20 text-pink-300 border border-pink-500/40">
               {settings.rpm} RPM

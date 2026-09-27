@@ -45,6 +45,7 @@ export const App: React.FC = () => {
     vectorGlow: true,
     soundEnabled: true,
     spikedPinwheels: true,
+    gyroTiltEnabled: false,
   });
 
   // Tilt & Compass state
@@ -188,16 +189,38 @@ export const App: React.FC = () => {
     const handleOrientation = (e: DeviceOrientationEvent) => {
       if (e.gamma !== null && e.beta !== null) {
         setHasDeviceOrientation(true);
-        // gamma is left-to-right tilt (-90 to 90)
-        // beta is front-to-back tilt (-180 to 180)
-        const gx = Math.max(-1, Math.min(1, e.gamma / 35)) * 0.4;
-        const gy = Math.max(-1, Math.min(1, (e.beta - 35) / 45)) * 0.4;
+        if (e.alpha !== null) {
+          setCompassAngle(e.alpha);
+        }
 
-        setTilt({ x: gx, y: gy });
-        if (engineRef.current) {
-          engineRef.current.tiltGravity = { x: gx, y: gy };
-          if (e.alpha !== null) {
-            setCompassAngle(e.alpha);
+        // Only apply kinetic tilt if gyroTiltEnabled is explicitly active
+        if (settings.gyroTiltEnabled) {
+          // Generous 10-degree deadzone for gamma so natural hand holding never slants the ball
+          const deadzoneX = 10;
+          let gx = 0;
+          if (Math.abs(e.gamma) > deadzoneX) {
+            const sign = Math.sign(e.gamma);
+            gx = Math.max(-1, Math.min(1, (e.gamma - sign * deadzoneX) / 25)) * 0.35;
+          }
+
+          // Natural resting hand angle for phone pitch is ~45 degrees
+          const pitchDiff = e.beta - 45;
+          const deadzoneY = 12;
+          let gy = 0;
+          if (Math.abs(pitchDiff) > deadzoneY) {
+            const sign = Math.sign(pitchDiff);
+            gy = Math.max(-1, Math.min(1, (pitchDiff - sign * deadzoneY) / 35)) * 0.35;
+          }
+
+          setTilt({ x: gx, y: gy });
+          if (engineRef.current) {
+            engineRef.current.tiltGravity = { x: gx, y: gy };
+          }
+        } else {
+          // Default: perfectly level pinball gravity (no mobile phone slant!)
+          setTilt({ x: 0, y: 0 });
+          if (engineRef.current) {
+            engineRef.current.tiltGravity = { x: 0, y: 0 };
           }
         }
       }
@@ -207,7 +230,7 @@ export const App: React.FC = () => {
     return () => {
       window.removeEventListener('deviceorientation', handleOrientation);
     };
-  }, []);
+  }, [settings.gyroTiltEnabled]);
 
   const requestSensorPermission = useCallback(async () => {
     handleUserInteraction();
@@ -327,8 +350,13 @@ export const App: React.FC = () => {
     const distToCenter = Math.hypot(dx, dy);
     const labelRadius = engineRef.current.turntable.radius * 0.44;
 
-    // Center record label tap -> TOGGLE PAUSE!
+    // Center record label tap
     if (distToCenter <= labelRadius) {
+      // If clicking directly on the upper "by: BostonyFX" label strip (-0.38 to -0.10 of label radius)
+      if (dy < -labelRadius * 0.10 && dy > -labelRadius * 0.38) {
+        window.open('https://www.instagram.com/tony_bostony/', '_blank', 'noopener,noreferrer');
+        return;
+      }
       engineRef.current.togglePause();
       return;
     }
@@ -360,6 +388,10 @@ export const App: React.FC = () => {
     const labelRadius = engineRef.current.turntable.radius * 0.44;
 
     if (distToCenter <= labelRadius) {
+      if (dy < -labelRadius * 0.10 && dy > -labelRadius * 0.38) {
+        window.open('https://www.instagram.com/tony_bostony/', '_blank', 'noopener,noreferrer');
+        return;
+      }
       engineRef.current.togglePause();
     }
   };

@@ -186,6 +186,7 @@ export interface GameSettings {
   vectorGlow: boolean;
   soundEnabled: boolean;
   spikedPinwheels?: boolean;
+  gyroTiltEnabled?: boolean;
 }
 
 export class BumperQuestEngine {
@@ -296,6 +297,8 @@ export class BumperQuestEngine {
   public currentMultiplier: number = 1;
   public bottomFlairGlow: number = 0;
   public topFlairGlow: number = 0;
+  public marqueeOpacity: number = 1.0;
+  public hasGameActivityBegun: boolean = false;
   public fps: number = 60;
 
   // Wave & Win/Loss Game States
@@ -309,6 +312,7 @@ export class BumperQuestEngine {
   public togglePause(): boolean {
     this.isPaused = !this.isPaused;
     if (this.isPaused) {
+      soundSynth.pausePlayback();
       soundSynth.playPauseSound();
       this.notices.push({
         text: '❚❚ GAME PAUSED',
@@ -320,6 +324,7 @@ export class BumperQuestEngine {
         color: '#ffea00',
       });
     } else {
+      soundSynth.resumePlayback();
       soundSynth.playResumeSound();
       this.notices.push({
         text: '▶ GAME RESUMED',
@@ -350,6 +355,7 @@ export class BumperQuestEngine {
     vectorGlow: true,
     soundEnabled: true,
     spikedPinwheels: true,
+    gyroTiltEnabled: false,
   };
 
   private lastTime: number = 0;
@@ -1014,6 +1020,13 @@ export class BumperQuestEngine {
     this.bottomFlairGlow = Math.max(0, this.bottomFlairGlow - dt * 2.2);
     this.topFlairGlow = Math.max(0, this.topFlairGlow - dt * 2.2);
 
+    // Fade out top retro marquee branding smoothly once game action commences
+    if (this.hasGameActivityBegun || this.totalBumps > 0 || this.score > 0) {
+      this.marqueeOpacity = Math.max(0, this.marqueeOpacity - dt * 0.85);
+    } else {
+      this.marqueeOpacity = Math.min(1.0, this.marqueeOpacity + dt * 1.5);
+    }
+
     // 5.5. Update Spiked Pinwheels rotation & glow
     if (this.settings.spikedPinwheels !== false) {
       for (const p of this.pinwheels) {
@@ -1097,15 +1110,19 @@ export class BumperQuestEngine {
     for (const h of this.hazards) {
       h.hitGlow = Math.max(0, h.hitGlow - dt * 2.5);
 
+      // Record bumper physical perimeter clearance
+      const minRecordClearance = this.turntable.radius + h.radius + 14;
+
       if (h.type === 'circle') {
-        // Orbit around turntable
+        // Orbit safely outside turntable perimeter
         h.orbitAngle = (h.orbitAngle || 0) + 0.02;
-        const rad = h.orbitRadius || (scale * 0.28);
+        const rad = Math.max(h.orbitRadius || (scale * 0.28), minRecordClearance + 6);
+        h.orbitRadius = rad;
         h.x = cx + Math.cos(h.orbitAngle) * rad;
         h.y = cy + Math.sin(h.orbitAngle) * rad;
         h.angle += 0.03;
       } else if (h.type === 'square') {
-        // Step logic: snaps/jumps to next grid cell every interval
+        // Step logic: snaps/jumps to next grid cell every interval, strictly excluding record area
         h.stepTimer = (h.stepTimer || 0) + 1;
         if (h.stepTimer > 90) {
           h.stepTimer = 0;
@@ -1114,21 +1131,35 @@ export class BumperQuestEngine {
           let tx = (h.gridTargetX || h.x);
           let ty = (h.gridTargetY || h.y);
 
-          if (randDir === 0) tx += gridSize;
-          else if (randDir === 1) tx -= gridSize;
-          else if (randDir === 2) ty += gridSize;
-          else ty -= gridSize;
+          let ntx = tx;
+          let nty = ty;
+          if (randDir === 0) ntx += gridSize;
+          else if (randDir === 1) ntx -= gridSize;
+          else if (randDir === 2) nty += gridSize;
+          else nty -= gridSize;
 
-          // Keep in bounds
-          if (tx > this.width * 0.2 && tx < this.width * 0.8) h.gridTargetX = tx;
-          if (ty > this.height * 0.2 && ty < this.height * 0.8) h.gridTargetY = ty;
+          // Check if candidate would step inside record or bounds
+          const candDist = Math.hypot(ntx - cx, nty - cy);
+          if (
+            candDist >= minRecordClearance &&
+            ntx > this.width * 0.16 && ntx < this.width * 0.84 &&
+            nty > this.height * 0.16 && nty < this.height * 0.84
+          ) {
+            h.gridTargetX = ntx;
+            h.gridTargetY = nty;
+          } else {
+            // Push candidate step away from center turntable
+            const angleAway = Math.atan2(ty - cy, tx - cx);
+            h.gridTargetX = cx + Math.cos(angleAway) * (minRecordClearance + gridSize * 0.7);
+            h.gridTargetY = cy + Math.sin(angleAway) * (minRecordClearance + gridSize * 0.7);
+          }
         }
 
         h.x += ((h.gridTargetX || h.x) - h.x) * 0.12;
         h.y += ((h.gridTargetY || h.y) - h.y) * 0.12;
         h.angle += h.angularVelocity;
       } else if (h.type === 'triangle') {
-        // High-velocity screensaver bounce
+        // High-velocity screensaver bounce off screen edges AND central turntable bumper
         h.x += h.vx;
         h.y += h.vy;
         h.angle += h.angularVelocity;
@@ -1140,6 +1171,21 @@ export class BumperQuestEngine {
         if (h.y - h.radius < pad || h.y + h.radius > this.height - pad) {
           h.vy = -h.vy;
         }
+
+        // Physical collision & elastic bounce off record turntable bumper
+        const tDist = Math.hypot(h.x - cx, h.y - cy);
+        if (tDist < minRecordClearance) {
+          const nx = (h.x - cx) / (tDist || 1);
+          const ny = (h.y - cy) / (tDist || 1);
+          h.x = cx + nx * minRecordClearance;
+          h.y = cy + ny * minRecordClearance;
+          const dot = h.vx * nx + h.vy * ny;
+          if (dot < 0) {
+            h.vx -= 2 * dot * nx;
+            h.vy -= 2 * dot * ny;
+          }
+          this.addSparks(h.x, h.y, h.color, 6);
+        }
       } else if (h.type === 'rectangle') {
         // Pendulum sliding side-to-side cleanly within central zone
         h.x += h.vx;
@@ -1150,6 +1196,18 @@ export class BumperQuestEngine {
         } else if (h.x < cx - range) {
           h.x = cx - range;
           h.vx = Math.abs(h.vx);
+        }
+      }
+
+      // Universal physical exclusion: Record is a solid bumper, element can never settle inside
+      const finalDist = Math.hypot(h.x - cx, h.y - cy);
+      if (finalDist < minRecordClearance) {
+        const outAngle = finalDist > 0.01 ? Math.atan2(h.y - cy, h.x - cx) : Math.random() * Math.PI * 2;
+        h.x = cx + Math.cos(outAngle) * minRecordClearance;
+        h.y = cy + Math.sin(outAngle) * minRecordClearance;
+        if (h.type === 'square') {
+          h.gridTargetX = h.x;
+          h.gridTargetY = h.y;
         }
       }
     }
@@ -2278,12 +2336,16 @@ export class BumperQuestEngine {
         const fy2 = f.pivotY + Math.sin(f.currentAngle) * f.length;
 
         const seg = this.distToSegment(ball.x, ball.y, f.pivotX, f.pivotY, fx2, fy2);
-        if (seg.distance < ball.radius + 8) {
+        const tVal = seg.t ?? 0;
+        // Tapered collision radius: 8px at pivot base down to 3.8px at tip
+        const flipR = 8 * (1 - tVal) + 3.8 * tVal;
+        if (seg.distance < ball.radius + flipR) {
           const normX = (ball.x - seg.closestX) / (seg.distance || 1);
           const normY = (ball.y - seg.closestY) / (seg.distance || 1);
 
-          // Push ball out
-          ball.x = seg.closestX + normX * (ball.radius + 8);
+          // Push ball out cleanly along contact normal
+          ball.x = seg.closestX + normX * (ball.radius + flipR);
+          ball.y = seg.closestY + normY * (ball.radius + flipR);
 
           // If flipper is swinging upward/active, launch with high power
           const flipPower = f.isFlipping ? 16 : 8;
@@ -2298,6 +2360,7 @@ export class BumperQuestEngine {
           this.totalBumps++;
           this.score += 200 * this.currentMultiplier;
           this.addSparks(ball.x, ball.y, '#ffffff', 8);
+          this.hasGameActivityBegun = true;
           this.onGameActivity?.();
 
           // Quad-Flipper tracking: add to ball's visited flippers set!
@@ -2574,6 +2637,8 @@ export class BumperQuestEngine {
     this.spawnBall();
     this.gameState = 'playing';
     this.stateCountdown = 0;
+    this.hasGameActivityBegun = false;
+    this.marqueeOpacity = 1.0;
 
     this.notices.push({
       text: 'AUTO-RESTART // WAVE 1',
@@ -2591,7 +2656,7 @@ export class BumperQuestEngine {
 
   private distToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number) {
     const l2 = (x2 - x1) ** 2 + (y2 - y1) ** 2;
-    if (l2 === 0) return { distance: Math.hypot(px - x1, py - y1), closestX: x1, closestY: y1 };
+    if (l2 === 0) return { distance: Math.hypot(px - x1, py - y1), closestX: x1, closestY: y1, t: 0 };
 
     let t = ((px - x1) * (x2 - x1) + (py - y1) * (y2 - y1)) / l2;
     t = Math.max(0, Math.min(1, t));
@@ -2602,6 +2667,7 @@ export class BumperQuestEngine {
       distance: Math.hypot(px - closestX, py - closestY),
       closestX,
       closestY,
+      t,
     };
   }
 
@@ -3245,8 +3311,8 @@ export class BumperQuestEngine {
       ctx.fillText(text, 0, yPos);
     };
 
-    drawFittedText('BumperQuest', -labelR * 0.48, is45 ? 7.5 : 8, '900', '#ffffff', '"Press Start 2P", monospace');
-    drawFittedText('by: BostonyFX', -labelR * 0.25, is45 ? 6.0 : 6.5, '700', '#fef08a', 'monospace');
+    drawFittedText('BUMPERQUEST', -labelR * 0.48, is45 ? 9.5 : 11, '900', '#ffea00', '"Press Start 2P", monospace');
+    drawFittedText('by: BostonyFX ↗', -labelR * 0.24, is45 ? 6.5 : 7.2, '700', '#38bdf8', 'monospace');
     drawFittedText(
       is45 ? 'CAT# BFX-45 • 45 RPM SINGLE' : `CAT# BFX-33 • ${this.settings.rpm} RPM LP`,
       labelR * 0.40,
@@ -3619,47 +3685,112 @@ export class BumperQuestEngine {
   }
 
   private drawFlippers(ctx: CanvasRenderingContext2D) {
+    const isPortrait = this.height > this.width;
+    // Responsive traditional flipper dimensions
+    // Base radius: wider at the pivot anchor post
+    const rBase = isPortrait
+      ? Math.max(7, Math.min(8.5, this.width * 0.020))
+      : Math.max(7.5, Math.min(9.5, this.height * 0.019));
+    // Tip radius: tapered down to a smaller rounded tip
+    const rTip = rBase * 0.46;
+    const hubRadius = rBase * 0.46; // Pivot anchor post inner bushing hole
+
     for (const f of this.flippers) {
       ctx.save();
       ctx.translate(f.pivotX, f.pivotY);
-
-      // Pivot base ring
-      ctx.strokeStyle = '#64748b';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(0, 0, 8, 0, Math.PI * 2);
-      ctx.fillStyle = '#0f172a';
-      ctx.fill();
-      ctx.stroke();
-
-      // Flipper arm
       ctx.rotate(f.currentAngle);
 
       const isGlowing = f.activeGlow > 0;
-      ctx.strokeStyle = isGlowing ? '#ffffff' : '#00f3ff';
-      ctx.lineWidth = 6;
-      ctx.shadowColor = '#00f3ff';
+      const L = f.length;
+
+      // Calculate tangent taper angle: alpha = asin((rBase - rTip) / L)
+      const sinAlpha = Math.max(0, Math.min(0.9, (rBase - rTip) / L));
+      const cosAlpha = Math.sqrt(1 - sinAlpha * sinAlpha);
+      const alpha = Math.asin(sinAlpha);
+
+      // Tangent points on base circle:
+      const bx1 = -rBase * sinAlpha;
+      const by1 = rBase * cosAlpha;
+      const bx2 = -rBase * sinAlpha;
+      const by2 = -rBase * cosAlpha;
+
+      // Tangent points on tip circle:
+      const tx1 = L - rTip * sinAlpha;
+      const ty1 = rTip * cosAlpha;
+      const tx2 = L - rTip * sinAlpha;
+      const ty2 = -rTip * cosAlpha;
+
+      // Sleek drop shadow / neon glow
+      ctx.shadowColor = isGlowing ? '#ffffff' : (f.id === 'BL' || f.id === 'BR' ? '#ff0055' : '#00f3ff');
       ctx.shadowBlur = isGlowing ? 18 : 8;
 
+      // Flipper body path (traditional tapered pinball flipper: round base -> upper taper line -> round tip -> lower taper line)
       ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(f.length, 0);
+      // Arc around tip from (tx1, ty1) to (tx2, ty2)
+      ctx.arc(L, 0, rTip, alpha - Math.PI / 2, Math.PI / 2 - alpha);
+      // Straight line to base lower tangent (bx2, by2)
+      ctx.lineTo(bx2, by2);
+      // Arc around base circle from (bx2, by2) to (bx1, by1)
+      ctx.arc(0, 0, rBase, -Math.PI / 2 - alpha, Math.PI / 2 + alpha);
+      // Straight line to tip upper tangent (tx1, ty1)
+      ctx.lineTo(tx1, ty1);
+      ctx.closePath();
+
+      // Flipper body fill
+      const bodyGrad = ctx.createLinearGradient(0, -rBase, 0, rBase);
+      if (isGlowing) {
+        bodyGrad.addColorStop(0, '#ffffff');
+        bodyGrad.addColorStop(0.5, '#e0f2fe');
+        bodyGrad.addColorStop(1, '#38bdf8');
+      } else if (f.id === 'BL' || f.id === 'BR') {
+        bodyGrad.addColorStop(0, '#f43f5e');
+        bodyGrad.addColorStop(0.5, '#be123c');
+        bodyGrad.addColorStop(1, '#881337');
+      } else {
+        bodyGrad.addColorStop(0, '#38bdf8');
+        bodyGrad.addColorStop(0.5, '#0284c7');
+        bodyGrad.addColorStop(1, '#0c4a6e');
+      }
+      ctx.fillStyle = bodyGrad;
+      ctx.fill();
+
+      // Flipper rubber rim stroke
+      ctx.strokeStyle = isGlowing ? '#ffffff' : (f.id === 'BL' || f.id === 'BR' ? '#ff0055' : '#00f3ff');
+      ctx.lineWidth = 1.8;
       ctx.stroke();
 
-      // Flipper rubber edge wedge tip
-      ctx.fillStyle = isGlowing ? '#ffffff' : '#ff0055';
+      // Central spine traction rib along flipper face
+      ctx.strokeStyle = isGlowing ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.arc(f.length, 0, 5, 0, Math.PI * 2);
+      ctx.moveTo(rBase * 0.65, 0);
+      ctx.lineTo(L - rTip * 1.3, 0);
+      ctx.stroke();
+
+      // Pivot Anchor Bushing (Round hole / pivot hub as shown in diagram)
+      ctx.beginPath();
+      ctx.arc(0, 0, hubRadius, 0, Math.PI * 2);
+      ctx.fillStyle = '#05070f';
+      ctx.fill();
+      ctx.strokeStyle = isGlowing ? '#ffffff' : '#94a3b8';
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+
+      // Center axle pin
+      ctx.beginPath();
+      ctx.arc(0, 0, hubRadius * 0.45, 0, Math.PI * 2);
+      ctx.fillStyle = isGlowing ? '#ffffff' : '#e2e8f0';
       ctx.fill();
 
       ctx.restore();
 
-      // Key label badge
+      // Key label badge positioned cleanly above/below pivot anchor
       ctx.save();
-      ctx.font = '600 11px monospace';
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.font = '700 10.5px monospace';
+      ctx.fillStyle = isGlowing ? '#ffffff' : 'rgba(255, 255, 255, 0.7)';
       ctx.textAlign = 'center';
-      ctx.fillText(f.label, f.pivotX, f.pivotY - 14);
+      const labelOffsetY = (f.id === 'TL' || f.id === 'TR') ? 16 : -14;
+      ctx.fillText(f.label, f.pivotX, f.pivotY + labelOffsetY);
       ctx.restore();
     }
   }
@@ -3853,6 +3984,14 @@ export class BumperQuestEngine {
     ctx.lineTo(w * 0.16, 14);
     ctx.moveTo(w * 0.84, 14);
     ctx.lineTo(w - 18, 18);
+    ctx.stroke();
+
+    // Bottom Outer Wall segments (symmetrically enclosing bottom corner pockets & leaving opening for Bowing Rebound Bumpers & Drain)
+    ctx.beginPath();
+    ctx.moveTo(18, h - 18);
+    ctx.lineTo(w * 0.16, h - 14);
+    ctx.moveTo(w * 0.84, h - 14);
+    ctx.lineTo(w - 18, h - 18);
     ctx.stroke();
 
     // 3. Top Gutter Drain Aperture [drainL to drainR]
@@ -4058,6 +4197,70 @@ export class BumperQuestEngine {
         ctx.fill();
       }
 
+      ctx.restore();
+    }
+
+    // 7.5. Symmetrical Bottom Corner Enclosure Bays (enclosing bottom effectors like the top corner chambers)
+    ctx.save();
+    ctx.strokeStyle = 'rgba(0, 243, 255, 0.45)';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#00f3ff';
+    ctx.shadowBlur = 8;
+
+    // Bottom-Left Enclosed Corner Arch: from side boundary around effector to bottom wall
+    ctx.beginPath();
+    ctx.moveTo(18, h - 75);
+    ctx.quadraticCurveTo(18, h - 22, w * 0.16, h - 14);
+    ctx.stroke();
+
+    // Bottom-Right Enclosed Corner Arch: from side boundary around effector to bottom wall
+    ctx.beginPath();
+    ctx.moveTo(w - 18, h - 75);
+    ctx.quadraticCurveTo(w - 18, h - 22, w * 0.84, h - 14);
+    ctx.stroke();
+
+    // Strobe guide dots along bottom corner enclosure arcs
+    for (let i = 1; i <= 3; i++) {
+      const frac = i / 4;
+      const blx = (1 - frac) * (1 - frac) * 18 + 2 * (1 - frac) * frac * 18 + frac * frac * (w * 0.16);
+      const bly = (1 - frac) * (1 - frac) * (h - 75) + 2 * (1 - frac) * frac * (h - 22) + frac * frac * (h - 14);
+      ctx.fillStyle = 'rgba(255, 170, 0, 0.75)';
+      ctx.beginPath();
+      ctx.arc(blx, bly, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      const brx = (1 - frac) * (1 - frac) * (w - 18) + 2 * (1 - frac) * frac * (w - 18) + frac * frac * (w * 0.84);
+      const bry = (1 - frac) * (1 - frac) * (h - 75) + 2 * (1 - frac) * frac * (h - 22) + frac * frac * (h - 14);
+      ctx.fillStyle = 'rgba(0, 243, 255, 0.75)';
+      ctx.beginPath();
+      ctx.arc(brx, bry, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // 8. Retro Arcade Marquee Banner: BUMPERQUEST (Disappears gracefully after gameplay commences)
+    if (this.marqueeOpacity > 0.01) {
+      ctx.save();
+      ctx.globalAlpha = this.marqueeOpacity;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      const marqueeY = Math.max(34, h * 0.072);
+
+      ctx.font = '900 12px "Press Start 2P", monospace';
+      // Glowing neon dual outline & fill
+      ctx.shadowColor = '#00f3ff';
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = '#00f3ff';
+      ctx.lineWidth = 2.5;
+      ctx.strokeText('BUMPERQUEST', w / 2, marqueeY);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText('BUMPERQUEST', w / 2, marqueeY);
+
+      ctx.font = '700 6.5px "Press Start 2P", monospace';
+      ctx.fillStyle = 'rgba(255, 0, 85, 0.85)';
+      ctx.shadowColor = '#ff0055';
+      ctx.shadowBlur = 6;
+      ctx.fillText('• VECTOR PINBALL •', w / 2, marqueeY + 12);
       ctx.restore();
     }
 
@@ -4592,12 +4795,12 @@ export class BumperQuestEngine {
     ctx.fillRect(0, 0, w, h);
 
     // Glowing pause banner card in center
-    const cardW = Math.min(w * 0.85, 340);
-    const cardH = 80;
+    const cardW = Math.min(w * 0.88, 360);
+    const cardH = 96;
     const cardX = cx - cardW / 2;
     const cardY = cy - cardH / 2;
 
-    ctx.fillStyle = 'rgba(10, 15, 30, 0.92)';
+    ctx.fillStyle = 'rgba(10, 15, 30, 0.94)';
     ctx.strokeStyle = '#00f3ff';
     ctx.lineWidth = 2;
     ctx.shadowColor = '#00f3ff';
@@ -4610,19 +4813,26 @@ export class BumperQuestEngine {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
+    // BUMPERQUEST Marquee
+    ctx.font = '900 13px "Press Start 2P", monospace';
+    ctx.fillStyle = '#00f3ff';
+    ctx.shadowColor = '#00f3ff';
+    ctx.shadowBlur = 10;
+    ctx.fillText('BUMPERQUEST', cx, cardY + 22);
+
     // Pause icon + title
-    ctx.font = '900 16px "Press Start 2P", monospace';
+    ctx.font = '900 13px "Press Start 2P", monospace';
     ctx.fillStyle = '#ffea00';
     ctx.shadowColor = '#ffea00';
     ctx.shadowBlur = 12;
-    ctx.fillText('❚❚ GAME PAUSED', cx, cy - 12);
+    ctx.fillText('❚❚ GAME PAUSED ❚❚', cx, cardY + 48);
 
     // Subtitle instruction
     ctx.font = '700 8.5px "Press Start 2P", monospace';
-    ctx.fillStyle = `rgba(255, 255, 255, ${0.7 + 0.3 * Math.sin(time * 6)})`;
+    ctx.fillStyle = `rgba(255, 255, 255, ${0.75 + 0.25 * Math.sin(time * 6)})`;
     ctx.shadowColor = '#00f3ff';
     ctx.shadowBlur = 6;
-    ctx.fillText('TAP RECORD TO RESUME', cx, cy + 16);
+    ctx.fillText('TAP RECORD TO RESUME', cx, cardY + 74);
 
     ctx.restore();
   }

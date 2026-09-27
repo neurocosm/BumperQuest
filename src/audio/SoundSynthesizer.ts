@@ -218,6 +218,51 @@ class SoundSynthesizer {
     }
   }
 
+  /**
+   * Pauses all audio synthesizer activity and intro music immediately when game pauses
+   */
+  public pausePlayback() {
+    // Stop the interval timer to avoid background ticking
+    if (this.musicTimerId !== null) {
+      clearInterval(this.musicTimerId);
+      this.musicTimerId = null;
+    }
+    // Suspend audio context to instantly freeze all sound waves, reverbs, and music
+    if (this.ctx && this.ctx.state === 'running') {
+      this.ctx.suspend().catch(() => {});
+    }
+  }
+
+  /**
+   * Resumes audio playback cleanly when game unpauses
+   */
+  public resumePlayback() {
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
+    // If intro music was active, restart sequencer interval smoothly
+    if (this.isMusicPlaying && this.musicTimerId === null) {
+      const stepDurationMs = 150;
+      this.musicTimerId = window.setInterval(() => {
+        if (!this.ctx || !this.musicGain || this.ctx.state === 'suspended') return;
+        const now = this.ctx.currentTime;
+        const melodyFreq = this.introMelody[this.musicStep % this.introMelody.length];
+        if (melodyFreq > 0) {
+          const oscType: OscillatorType = (this.musicStep % 8 < 4) ? 'square' : 'triangle';
+          this.playChiptuneNote(melodyFreq, 0.12, oscType, 0.08, now);
+        }
+        const bassFreq = this.introBass[Math.floor(this.musicStep / 2) % this.introBass.length];
+        if (this.musicStep % 2 === 0 && bassFreq > 0) {
+          this.playChiptuneNote(bassFreq, 0.18, 'triangle', 0.14, now);
+        }
+        if (this.musicStep % 4 === 2) {
+          this.playSnareTick(now);
+        }
+        this.musicStep++;
+      }, stepDurationMs);
+    }
+  }
+
   public isIntroPlaying(): boolean {
     return this.isMusicPlaying;
   }

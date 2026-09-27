@@ -1,5 +1,5 @@
 {
-  "version": "v1.09262026.0745",
-  "buildTime": "2026-09-26T04:45:00.000Z",
-  "notes": "Dynamic end-to-end element sizing, compact orbiting satellites, unobtrusive milestone notices, and uncluttered corner gadgets"
+  "version": "v1.09272026.0425",
+  "buildTime": "2026-09-27T04:25:00.000Z",
+  "notes": "Added Instagram link for BostonyFX, transient top marquee that gracefully fades after gameplay commences, and updated cache flush confirmation in config panel."
 }
