@@ -4,7 +4,7 @@
  * and performing a full cache dump and hard reload.
  */
 
-export const CURRENT_APP_VERSION = 'v1.09272026.0425';
+export const CURRENT_APP_VERSION = 'v1.09272026.0508';
 
 export interface VersionInfo {
   version: string;

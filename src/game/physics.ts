@@ -390,16 +390,17 @@ export class BumperQuestEngine {
     const isPortrait = this.height > this.width;
 
     // Dynamically calculate turntable radius based on portrait / landscape orientation
-    // On phones, keeps the record from hogging the narrow horizontal width
+    // On phones (portrait), reduce by 7% to give balls extra room to freely move
     const lpRadius = isPortrait
-      ? Math.min(this.width * 0.19, this.height * 0.10)
+      ? Math.min(this.width * 0.1767, this.height * 0.093) // ~7% smaller than landscape ratio
       : Math.min(this.height * 0.19, this.width * 0.13);
-    this.turntable.baseLPRadius = Math.max(54, Math.min(115, lpRadius));
-    this.turntable.targetRadius = this.turntable.baseLPRadius;
-    this.turntable.radius = this.turntable.baseLPRadius;
+    this.turntable.baseLPRadius = Math.max(isPortrait ? 50 : 54, Math.min(isPortrait ? 107 : 115, Math.round(lpRadius * (isPortrait ? 0.93 : 1.0))));
+    this.turntable.compact45Radius = Math.round(this.turntable.baseLPRadius * 0.68);
+    this.turntable.targetRadius = this.turntable.is45RPM ? this.turntable.compact45Radius : this.turntable.baseLPRadius;
+    this.turntable.radius = this.turntable.targetRadius;
     this.turntable.x = this.width / 2;
     this.turntable.y = this.height / 2;
-    this.spider.orbitRadius = this.turntable.radius + (isPortrait ? 24 : 32);
+    this.spider.orbitRadius = this.turntable.radius + (isPortrait ? 22 : 32);
 
     // Refresh all field entities with responsive orientation math
     this.setupFlippers();
@@ -832,7 +833,7 @@ export class BumperQuestEngine {
       ? Math.min(this.height * 0.19, this.width * 0.44)
       : Math.min(this.height * 0.25, this.width * 0.18);
     const halfWidth = isPortrait
-      ? Math.min(this.width * 0.22, 90)
+      ? Math.min(this.width * 0.22, 90) * 0.90 // 10% shorter in portrait mode to give balls more room to maneuver
       : Math.min(this.height * 0.16, 120);
 
     const topBaseY = cy - vertOffset;
@@ -1231,7 +1232,7 @@ export class BumperQuestEngine {
       ? Math.min(this.height * 0.19, this.width * 0.44)
       : Math.min(this.height * 0.25, this.width * 0.18);
     const halfWidth = isPortrait
-      ? Math.min(this.width * 0.22, 90)
+      ? Math.min(this.width * 0.22, 90) * 0.90 // 10% shorter in portrait mode to give balls more room to maneuver
       : Math.min(this.height * 0.16, 120);
 
     const topBaseY = cy - vertOffset;
@@ -3312,7 +3313,7 @@ export class BumperQuestEngine {
     };
 
     drawFittedText('BUMPERQUEST', -labelR * 0.48, is45 ? 9.5 : 11, '900', '#ffea00', '"Press Start 2P", monospace');
-    drawFittedText('by: BostonyFX ↗', -labelR * 0.24, is45 ? 6.5 : 7.2, '700', '#38bdf8', 'monospace');
+    drawFittedText('by: BostonyFX', -labelR * 0.24, is45 ? 6.5 : 7.2, '700', '#38bdf8', 'monospace');
     drawFittedText(
       is45 ? 'CAT# BFX-45 • 45 RPM SINGLE' : `CAT# BFX-33 • ${this.settings.rpm} RPM LP`,
       labelR * 0.40,

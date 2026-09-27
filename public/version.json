@@ -1,5 +1,5 @@
 {
-  "version": "v1.09272026.0425",
-  "buildTime": "2026-09-27T04:25:00.000Z",
-  "notes": "Added Instagram link for BostonyFX, transient top marquee that gracefully fades after gameplay commences, and updated cache flush confirmation in config panel."
+  "version": "v1.09272026.0508",
+  "buildTime": "2026-09-27T05:08:00.000Z",
+  "notes": "Reduced record size by 7% and reduced moving drain relief bumpers width by 10% in portrait mode to give balls more open room to freely move around on mobile."
 }

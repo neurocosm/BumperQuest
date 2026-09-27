@@ -350,13 +350,8 @@ export const App: React.FC = () => {
     const distToCenter = Math.hypot(dx, dy);
     const labelRadius = engineRef.current.turntable.radius * 0.44;
 
-    // Center record label tap
+    // Center record label tap -> toggle pause cleanly with no external links
     if (distToCenter <= labelRadius) {
-      // If clicking directly on the upper "by: BostonyFX" label strip (-0.38 to -0.10 of label radius)
-      if (dy < -labelRadius * 0.10 && dy > -labelRadius * 0.38) {
-        window.open('https://www.instagram.com/tony_bostony/', '_blank', 'noopener,noreferrer');
-        return;
-      }
       engineRef.current.togglePause();
       return;
     }
@@ -388,10 +383,6 @@ export const App: React.FC = () => {
     const labelRadius = engineRef.current.turntable.radius * 0.44;
 
     if (distToCenter <= labelRadius) {
-      if (dy < -labelRadius * 0.10 && dy > -labelRadius * 0.38) {
-        window.open('https://www.instagram.com/tony_bostony/', '_blank', 'noopener,noreferrer');
-        return;
-      }
       engineRef.current.togglePause();
     }
   };
