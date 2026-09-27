@@ -201,6 +201,7 @@ export interface GameSettings {
   spikedPinwheels?: boolean;
   tripleBumpers?: boolean;
   gyroTiltEnabled?: boolean;
+  keepScreenAwake?: boolean;
 }
 
 export class BumperQuestEngine {

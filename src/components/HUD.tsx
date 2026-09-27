@@ -15,6 +15,7 @@ import {
   EyeOff,
   Music,
   Zap,
+  Sun,
   X,
 } from 'lucide-react';
 import { GameSettings } from '../game/physics';
@@ -50,6 +51,7 @@ interface HUDProps {
   onOpenSettings: () => void;
   onToggleTiltPad: () => void;
   onToggleZenMode: () => void;
+  onToggleKeepScreenAwake?: () => void;
   onTriggerFlipper: (id: 'TL' | 'TR' | 'BL' | 'BR') => void;
   onReleaseFlipper: (id: 'TL' | 'TR' | 'BL' | 'BR') => void;
 }
@@ -85,6 +87,7 @@ export const HUD: React.FC<HUDProps> = ({
   onOpenSettings,
   onToggleTiltPad,
   onToggleZenMode,
+  onToggleKeepScreenAwake,
   onTriggerFlipper,
   onReleaseFlipper,
 }) => {
@@ -295,6 +298,25 @@ export const HUD: React.FC<HUDProps> = ({
           >
             <Compass className="w-3.5 h-3.5" />
           </button>
+
+          {/* Keep Screen Awake / Screen Alive quick button */}
+          {onToggleKeepScreenAwake && (
+            <button
+              onClick={onToggleKeepScreenAwake}
+              title={
+                settings.keepScreenAwake !== false
+                  ? 'Screen Wake Lock: ACTIVE (Display will stay ON, click to toggle)'
+                  : 'Screen Wake Lock: OFF (Display can sleep, click to keep awake)'
+              }
+              className={`hidden sm:flex p-1.5 rounded-lg border text-xs transition-colors items-center gap-1 ${
+                settings.keepScreenAwake !== false
+                  ? 'bg-yellow-950/40 border-yellow-500/50 text-yellow-300 shadow-sm shadow-yellow-500/20'
+                  : 'bg-black/60 border-slate-800 text-slate-500 hover:text-yellow-300 hover:border-slate-700'
+              }`}
+            >
+              <Sun className="w-3.5 h-3.5" />
+            </button>
+          )}
 
           {/* Sound Mute / Unlock */}
           <button
@@ -591,6 +613,10 @@ export const HUD: React.FC<HUDProps> = ({
                   <div>
                     <span className="text-purple-300 font-bold">• DJ Record Scratching (Mouse / Swipe):</span>
                     <p className="text-slate-300 text-[11px] mt-0.5">Click and drag or swipe across the vinyl record to scratch, pitch-bend the sound synth, and whip trapped balls outward with centrifugal force.</p>
+                  </div>
+                  <div>
+                    <span className="text-yellow-300 font-bold">• Screen Alive / Wake Lock:</span>
+                    <p className="text-slate-300 text-[11px] mt-0.5">Keep the screen awake and active indefinitely so monitors, tablets, and phones never dim or shut off while BumperQuest plays by itself. Toggle via the top <b className="text-yellow-300">☀ Sun icon</b> or in Settings!</p>
                   </div>
                 </div>
               </div>

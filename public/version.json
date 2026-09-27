@@ -1,5 +1,5 @@
 {
-  "version": "v1.09272026.0537",
-  "buildTime": "2026-09-27T05:37:00.000Z",
-  "notes": "Added dedicated 'Secret Manual Player Mode & Arcade Controls' section to the Features & Elements guide and added an Auto/Manual player mode toggle directly in Settings."
+  "version": "v1.09272026.1449",
+  "buildTime": "2026-09-27T14:49:00.000Z",
+  "notes": "Added Screen Alive / Wake Lock support: keeps display awake indefinitely during autonomous gameplay and screensaver mode, with quick-toggle in header and settings modal."
 }

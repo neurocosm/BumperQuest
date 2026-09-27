@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Sliders, Volume2, VolumeX, Disc, Eye, Zap, RefreshCw, AlertCircle, CheckCircle, ExternalLink } from 'lucide-react';
+import { X, Sliders, Volume2, VolumeX, Disc, Eye, Zap, RefreshCw, AlertCircle, CheckCircle, ExternalLink, Sun } from 'lucide-react';
 import { GameSettings } from '../game/physics';
 import { soundSynth } from '../audio/SoundSynthesizer';
 import { CURRENT_APP_VERSION, checkForAppUpdate, dumpCachesAndReload, CheckUpdateResult } from '../utils/versionManager';
@@ -380,6 +380,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               }`}
             >
               {settings.tripleBumpers !== false ? 'ON' : 'OFF'}
+            </button>
+          </div>
+
+          {/* Keep Screen Alive / Wake Lock Toggle */}
+          <div className="flex items-center justify-between p-3 rounded-lg border border-yellow-500/40 bg-yellow-950/20">
+            <div>
+              <div className="flex items-center gap-2">
+                <Sun className="w-4 h-4 text-yellow-400" />
+                <span className="font-mono text-xs font-bold text-yellow-300">Keep Screen Alive / Wake Lock</span>
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-yellow-400/20 text-yellow-300 border border-yellow-400/40 font-bold">
+                  {settings.keepScreenAwake !== false ? 'AWAKE' : 'OFF'}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-300 mt-0.5">
+                Prevents your monitor or phone display from dimming, sleeping, or shutting off during idle kinetic gameplay and screensaver mode.
+              </p>
+            </div>
+            <button
+              onClick={() => onUpdateSettings({ keepScreenAwake: settings.keepScreenAwake === false ? true : false })}
+              className={`px-3 py-1.5 rounded text-xs font-mono font-bold transition-all cursor-pointer shadow-md ${
+                settings.keepScreenAwake !== false
+                  ? 'bg-yellow-400 text-black shadow-yellow-500/30 font-bold'
+                  : 'bg-slate-700 text-slate-300'
+              }`}
+            >
+              {settings.keepScreenAwake !== false ? 'ON' : 'OFF'}
             </button>
           </div>
 

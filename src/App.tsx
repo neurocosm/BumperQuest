@@ -6,6 +6,7 @@ import { HUD } from './components/HUD';
 import { TiltVirtualPad } from './components/TiltVirtualPad';
 import { SettingsModal } from './components/SettingsModal';
 import { checkForAppUpdate, dumpCachesAndReload, CheckUpdateResult } from './utils/versionManager';
+import { screenWakeLock } from './utils/wakeLock';
 
 export const App: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -47,7 +48,11 @@ export const App: React.FC = () => {
     spikedPinwheels: true,
     tripleBumpers: true,
     gyroTiltEnabled: false,
+    keepScreenAwake: true,
   });
+
+  // Track active wake lock state for status badges
+  const [isWakeLockActive, setIsWakeLockActive] = useState(false);
 
   // Tilt & Compass state
   const [tilt, setTilt] = useState({ x: 0, y: 0 });
@@ -87,6 +92,12 @@ export const App: React.FC = () => {
           }
         }
       });
+      // Re-assert wake lock on user touch/click as browsers may require user engagement
+      if (settings.keepScreenAwake !== false) {
+        screenWakeLock.requestLock().then((active) => {
+          setIsWakeLockActive(active);
+        });
+      }
     };
 
     window.addEventListener('pointerdown', unlockOnGesture, { capture: true, once: true });
@@ -180,10 +191,28 @@ export const App: React.FC = () => {
     }
   }, [settings]);
 
+  // Screen Wake Lock: Keep screen alive/on during gameplay & screensaver
+  useEffect(() => {
+    const shouldKeepAwake = settings.keepScreenAwake !== false;
+    screenWakeLock.setEnabled(shouldKeepAwake);
+    if (shouldKeepAwake) {
+      screenWakeLock.requestLock().then((active) => {
+        setIsWakeLockActive(active);
+      });
+    } else {
+      setIsWakeLockActive(false);
+    }
+  }, [settings.keepScreenAwake]);
+
   // Audio start on first user interaction
   const handleUserInteraction = useCallback(() => {
     soundSynth.init();
-  }, []);
+    if (settings.keepScreenAwake !== false && !screenWakeLock.getIsActive()) {
+      screenWakeLock.requestLock().then((active) => {
+        setIsWakeLockActive(active);
+      });
+    }
+  }, [settings.keepScreenAwake]);
 
   // Gyroscope / DeviceOrientation handlers
   useEffect(() => {
@@ -572,6 +601,12 @@ export const App: React.FC = () => {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onToggleTiltPad={() => setIsTiltPadOpen(prev => !prev)}
         onToggleZenMode={() => setIsZenMode(prev => !prev)}
+        onToggleKeepScreenAwake={() =>
+          setSettings((prev) => ({
+            ...prev,
+            keepScreenAwake: prev.keepScreenAwake === false ? true : false,
+          }))
+        }
         onTriggerFlipper={handleTriggerFlipper}
         onReleaseFlipper={handleReleaseFlipper}
       />
