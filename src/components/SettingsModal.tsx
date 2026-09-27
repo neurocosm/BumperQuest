@@ -341,6 +341,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             </button>
           </div>
 
+          {/* Rotating Triple Bumpers (Wide Desktop Browser Only) */}
+          <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700 bg-slate-900/40">
+            <div>
+              <span className="font-mono text-xs font-bold text-pink-400">Rotating Triple Bumpers (Desktop Wide Mode)</span>
+              <p className="text-[11px] text-slate-400">Twin miniature rotating 3-bumper clusters flanking the record player; dynamically scales and only appears in wide desktop browser tabs</p>
+            </div>
+            <button
+              onClick={() => onUpdateSettings({ tripleBumpers: settings.tripleBumpers === false ? true : false })}
+              className={`px-3 py-1 rounded text-xs font-mono font-bold transition-all ${
+                settings.tripleBumpers !== false ? 'bg-pink-500 text-black' : 'bg-slate-700 text-slate-300'
+              }`}
+            >
+              {settings.tripleBumpers !== false ? 'ON' : 'OFF'}
+            </button>
+          </div>
+
           {/* CRT Scanline Toggle */}
           <div className="flex items-center justify-between p-3 rounded-lg border border-slate-700 bg-slate-900/40">
             <div>

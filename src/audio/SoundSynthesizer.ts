@@ -992,6 +992,42 @@ class SoundSynthesizer {
   }
 
   /**
+   * Rotating Triple Bumper Melodic Trill Ricochet Sound (Landscape mode)
+   */
+  public playTripleBumperRicochet(subIndex: number = 0) {
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    this.ensureRunning();
+
+    try {
+      const now = this.ctx.currentTime;
+      // Vibrant tri-tone bell triad
+      const triad = [659.25, 830.61, 987.77]; // E5, G#5, B5 crystal resonance
+      const baseFreq = triad[subIndex % triad.length];
+      const duration = 0.24;
+
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(baseFreq, now);
+      osc.frequency.exponentialRampToValueAtTime(baseFreq * 1.5, now + 0.08);
+      osc.frequency.exponentialRampToValueAtTime(baseFreq, now + duration);
+
+      gain.gain.setValueAtTime(0.01, now);
+      gain.gain.linearRampToValueAtTime(0.32, now + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(now);
+      osc.stop(now + duration);
+    } catch (e) {
+      console.warn('Triple bumper sound error:', e);
+    }
+  }
+
+  /**
    * Secret Needle Super Flipper Activation Chime
    */
   public playSuperNeedleActivate() {

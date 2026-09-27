@@ -124,6 +124,19 @@ export interface SpikedPinwheel {
   color: string;
 }
 
+export interface RotatingTripleBumper {
+  id: 'left' | 'right';
+  x: number;
+  y: number;
+  clusterRadius: number; // distance from center hub to the 3 satellite bumper caps
+  bumperRadius: number;  // individual bumper cap radius
+  angle: number;
+  rotationSpeed: number;
+  hitGlow: number;
+  activeSubBumper: number; // index (0, 1, 2) that was last struck
+  color: string;
+}
+
 export interface NeedleTonearm {
   pivotX: number;
   pivotY: number;
@@ -186,6 +199,7 @@ export interface GameSettings {
   vectorGlow: boolean;
   soundEnabled: boolean;
   spikedPinwheels?: boolean;
+  tripleBumpers?: boolean;
   gyroTiltEnabled?: boolean;
 }
 
@@ -199,6 +213,7 @@ export class BumperQuestEngine {
   public balls: Ball[] = [];
   public flippers: Flipper[] = [];
   public pinwheels: SpikedPinwheel[] = [];
+  public tripleBumpers: RotatingTripleBumper[] = [];
   public hazards: GeometricHazard[] = [];
   public fences: ElectricFence[] = [];
   public dots: DotNode[] = [];
@@ -405,6 +420,7 @@ export class BumperQuestEngine {
     // Refresh all field entities with responsive orientation math
     this.setupFlippers();
     this.setupPinwheels();
+    this.setupTripleBumpers();
     this.setupTopCornerGadgets();
     this.setupNeedleArm();
     this.setupElectricFences();
@@ -447,6 +463,9 @@ export class BumperQuestEngine {
 
     // Setup Spiked Corner Pinwheels (under bottom flippers)
     this.setupPinwheels();
+
+    // Setup Rotating Triple Bumpers (between side tunnels and record in wide landscape mode)
+    this.setupTripleBumpers();
 
     // Setup Top Corner Gadgets (Left Slicer, Right Stasis Capture)
     this.setupTopCornerGadgets();
@@ -657,6 +676,76 @@ export class BumperQuestEngine {
         rotationSpeed: -0.13, // Fast counter-clockwise spin (whipping balls up & in)
         hitGlow: 0,
         color: '#00f3ff',
+      },
+    ];
+  }
+
+  /**
+   * Rotating Triple Bumpers:
+   * Only active and visible when in wide desktop browser landscape mode:
+   * - Desktop browser width threshold (width >= 960px)
+   * - Wide landscape aspect ratio (width > height * 1.30)
+   * - Excludes mobile/phone screens so mobile remains completely uncluttered.
+   * Dynamically and gracefully scales with browser viewport width and height to remain
+   * a compact, elegant obstacle between the side tunnels and the center vinyl record.
+   */
+  private setupTripleBumpers() {
+    const w = this.width;
+    const h = this.height;
+
+    // Desktop wide browser detection:
+    // Requires both wide aspect ratio (aspect >= 1.30) and desktop width (w >= 960)
+    // to ensure tablets in vertical/portrait, phones, and narrow windows keep the area clear.
+    const isDesktopWide = w >= 960 && (w / h) >= 1.30;
+
+    if (!isDesktopWide || this.settings.tripleBumpers === false) {
+      this.tripleBumpers = [];
+      return;
+    }
+
+    const cx = w / 2;
+    const cy = h / 2;
+    const rTurntable = this.turntable.baseLPRadius;
+    const pad = 24; // side wall / tunnel edge
+    const tunnelY = cy; // tunnels are centered vertically
+
+    // Available horizontal span between tunnel exit and vinyl record edge
+    const fairwaySpan = (cx - rTurntable) - pad;
+
+    // Positioned right in the sweet spot halfway between the side tunnel aperture and the outer record rim!
+    const leftMidX = pad + fairwaySpan * 0.50;
+    const rightMidX = w - pad - fairwaySpan * 0.50;
+
+    // Dynamically scaled to be smaller, compact, and perfectly proportioned:
+    // Cluster radius scales with available fairway span (typically 12px - 19px)
+    const clusterR = Math.max(12, Math.min(19, fairwaySpan * 0.085, h * 0.026));
+    // Each individual satellite bumper cap is smaller (typically 5.5px - 8.5px)
+    const bumperR = Math.max(5.5, Math.min(8.5, clusterR * 0.44));
+
+    this.tripleBumpers = [
+      {
+        id: 'left',
+        x: leftMidX,
+        y: tunnelY,
+        clusterRadius: clusterR,
+        bumperRadius: bumperR,
+        angle: this.tripleBumpers?.[0]?.angle ?? 0,
+        rotationSpeed: 0.024, // Gentle clockwise rotation
+        hitGlow: 0,
+        activeSubBumper: -1,
+        color: '#ff0055', // Hot red/pink neon matching user mockup
+      },
+      {
+        id: 'right',
+        x: rightMidX,
+        y: tunnelY,
+        clusterRadius: clusterR,
+        bumperRadius: bumperR,
+        angle: this.tripleBumpers?.[1]?.angle ?? Math.PI,
+        rotationSpeed: -0.024, // Gentle counter-clockwise rotation
+        hitGlow: 0,
+        activeSubBumper: -1,
+        color: '#ff0055', // Hot red/pink neon matching user mockup
       },
     ];
   }
@@ -1033,6 +1122,14 @@ export class BumperQuestEngine {
       for (const p of this.pinwheels) {
         p.angle += p.rotationSpeed * (1 + p.hitGlow * 1.5);
         p.hitGlow = Math.max(0, p.hitGlow - dt * 2.2);
+      }
+    }
+
+    // 5.55. Update Rotating Triple Bumpers (gentle spin in wide landscape mode)
+    if (this.settings.tripleBumpers !== false && this.tripleBumpers.length > 0) {
+      for (const tb of this.tripleBumpers) {
+        tb.angle += tb.rotationSpeed * (1 + tb.hitGlow * 1.2);
+        tb.hitGlow = Math.max(0, tb.hitGlow - dt * 2.5);
       }
     }
 
@@ -2149,6 +2246,73 @@ export class BumperQuestEngine {
         }
       }
 
+      // 5.55. Rotating Triple Bumpers Collision (Wide Landscape Mode only)
+      if (this.settings.tripleBumpers !== false && this.tripleBumpers.length > 0) {
+        for (const tb of this.tripleBumpers) {
+          // Check collision against each of the 3 satellite bumper caps on this cluster
+          for (let sIdx = 0; sIdx < 3; sIdx++) {
+            const subAngle = tb.angle + (sIdx * (Math.PI * 2 / 3));
+            const subX = tb.x + Math.cos(subAngle) * tb.clusterRadius;
+            const subY = tb.y + Math.sin(subAngle) * tb.clusterRadius;
+
+            const tdx = ball.x - subX;
+            const tdy = ball.y - subY;
+            const tDist = Math.hypot(tdx, tdy);
+
+            if (tDist < tb.bumperRadius + ball.radius) {
+              const tnx = tdx / (tDist || 1);
+              const tny = tdy / (tDist || 1);
+
+              // Standard energetic pinball pop-bumper repulsion
+              const inSpeed = Math.hypot(ball.vx, ball.vy);
+              const bounceForce = Math.max(13.5, inSpeed * 1.35 + 2.5);
+
+              // Push cleanly out
+              ball.x = subX + tnx * (tb.bumperRadius + ball.radius + 3);
+              ball.y = subY + tny * (tb.bumperRadius + ball.radius + 3);
+
+              // Tangential rotational nudge from the cluster spin
+              const spinSign = tb.rotationSpeed > 0 ? 1 : -1;
+              const tangX = -tny * spinSign;
+              const tangY = tnx * spinSign;
+
+              ball.vx = tnx * bounceForce + tangX * 2.5;
+              ball.vy = tny * bounceForce + tangY * 2.5;
+
+              tb.hitGlow = 1.0;
+              tb.activeSubBumper = sIdx;
+
+              soundSynth.playTripleBumperRicochet(sIdx);
+              this.totalBumps++;
+              this.score += 350 * this.currentMultiplier;
+
+              this.addSparks(ball.x, ball.y, '#ff0055', 14);
+              this.addSparks(ball.x, ball.y, '#ffea00', 10);
+              this.shockwaves.push({
+                x: subX,
+                y: subY,
+                radius: tb.bumperRadius,
+                maxRadius: 52,
+                color: '#ff0055',
+                alpha: 1.0,
+              });
+
+              this.notices.push({
+                text: 'TRIPLE POP! +350',
+                x: tb.x,
+                y: tb.y - tb.clusterRadius - 18,
+                vy: -0.35,
+                life: 0,
+                maxLife: 45,
+                color: '#ff0055',
+              });
+
+              break; // Handle one sub-bumper collision per cluster per frame
+            }
+          }
+        }
+      }
+
       // 5.6. Top-Left Laser Slicer (Engages for 5 seconds every 30 seconds!)
       {
         const s = this.slicer;
@@ -2753,6 +2917,9 @@ export class BumperQuestEngine {
 
     // 7.5. Draw Spiked Corner Pinwheels (under bottom flippers)
     this.drawSpikedPinwheels(ctx);
+
+    // 7.55. Draw Rotating Triple Bumpers (wide landscape mode between side tunnels & vinyl record)
+    this.drawRotatingTripleBumpers(ctx);
 
     // 7.6. Draw Top Corner Gadgets (Laser Slicer & Stasis Capture Chamber)
     this.drawTopCornerGadgets(ctx);
@@ -4356,6 +4523,108 @@ export class BumperQuestEngine {
       ctx.beginPath();
       ctx.arc(0, 0, 3.5, 0, Math.PI * 2);
       ctx.fillStyle = p.hitGlow > 0 ? '#ffffff' : color;
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  /**
+   * Render Rotating Triple Bumpers:
+   * Authentic vector neon triple pop-bumper cluster (3 circular bumpers grouped together that gently rotate).
+   * Matches user's mockup: sits halfway between the side tunnel aperture and the center record.
+   * Completely hidden in mobile / portrait mode.
+   */
+  private drawRotatingTripleBumpers(ctx: CanvasRenderingContext2D) {
+    if (this.settings.tripleBumpers === false || this.tripleBumpers.length === 0) return;
+
+    for (const tb of this.tripleBumpers) {
+      ctx.save();
+      ctx.translate(tb.x, tb.y);
+
+      const glow = 8 + tb.hitGlow * 18;
+      const primaryColor = tb.hitGlow > 0 ? '#ffffff' : tb.color;
+
+      // 1. Central Orbital Tracer Ring (subtle faint vector track)
+      ctx.strokeStyle = `rgba(255, 0, 85, ${0.22 + tb.hitGlow * 0.3})`;
+      ctx.lineWidth = 1.0;
+      ctx.shadowColor = tb.color;
+      ctx.shadowBlur = glow * 0.6;
+      ctx.beginPath();
+      ctx.arc(0, 0, tb.clusterRadius, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // 2. Three Interlinked Satellite Bumper Nodes
+      for (let i = 0; i < 3; i++) {
+        const subAngle = tb.angle + (i * (Math.PI * 2 / 3));
+        const subX = Math.cos(subAngle) * tb.clusterRadius;
+        const subY = Math.sin(subAngle) * tb.clusterRadius;
+
+        const isSubHit = tb.activeSubBumper === i && tb.hitGlow > 0;
+        const capGlow = isSubHit ? 14 : (5 + tb.hitGlow * 8);
+        const nodeColor = isSubHit ? '#ffffff' : tb.color;
+
+        // Radiating connecting spoke from center hub to satellite bumper
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(subX, subY);
+        ctx.strokeStyle = `rgba(255, 0, 85, ${0.40 + tb.hitGlow * 0.4})`;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+
+        // Outer neon bumper halo
+        ctx.save();
+        ctx.translate(subX, subY);
+
+        ctx.shadowColor = tb.color;
+        ctx.shadowBlur = capGlow;
+
+        // Bumper body gradient fill
+        const capGrad = ctx.createRadialGradient(0, 0, 1.5, 0, 0, tb.bumperRadius);
+        capGrad.addColorStop(0, isSubHit ? '#ffffff' : '#450a0a');
+        capGrad.addColorStop(0.55, isSubHit ? '#ffea00' : '#881337');
+        capGrad.addColorStop(1, isSubHit ? '#ff0055' : '#1e050b');
+        ctx.fillStyle = capGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, tb.bumperRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Vibrant neon outer bumper ring
+        ctx.strokeStyle = nodeColor;
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+
+        // Inner concentrated concentric ring
+        ctx.beginPath();
+        ctx.arc(0, 0, tb.bumperRadius * 0.52, 0, Math.PI * 2);
+        ctx.strokeStyle = isSubHit ? '#ffffff' : 'rgba(255, 234, 0, 0.85)';
+        ctx.lineWidth = 1.1;
+        ctx.stroke();
+
+        // Center glowing cap pip
+        ctx.beginPath();
+        ctx.arc(0, 0, Math.max(1.2, tb.bumperRadius * 0.22), 0, Math.PI * 2);
+        ctx.fillStyle = isSubHit ? '#ffffff' : '#ffea00';
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      // 3. Central Planetary Hub Axle
+      ctx.beginPath();
+      ctx.arc(0, 0, Math.max(2.5, tb.bumperRadius * 0.45), 0, Math.PI * 2);
+      ctx.fillStyle = '#080812';
+      ctx.fill();
+      ctx.strokeStyle = primaryColor;
+      ctx.lineWidth = 1.4;
+      ctx.shadowColor = tb.color;
+      ctx.shadowBlur = glow * 0.8;
+      ctx.stroke();
+
+      // Mini center core
+      ctx.beginPath();
+      ctx.arc(0, 0, 1.5, 0, Math.PI * 2);
+      ctx.fillStyle = tb.hitGlow > 0 ? '#ffffff' : '#ffea00';
       ctx.fill();
 
       ctx.restore();

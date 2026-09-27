@@ -590,6 +590,10 @@ export const HUD: React.FC<HUDProps> = ({
                     <span className="text-orange-400 font-bold">• Spiked Corner Pinwheels:</span>
                     <p className="text-slate-400 text-[11px] mt-0.5">Rapidly spinning turbine pinwheels in the bottom corners under the flippers that fling low balls diagonally back toward the record.</p>
                   </div>
+                  <div>
+                    <span className="text-pink-400 font-bold">• Rotating Triple Bumpers (Desktop Wide Mode Only):</span>
+                    <p className="text-slate-400 text-[11px] mt-0.5">Compact, gently revolving 3-ring pop-bumper clusters that live halfway between the side tunnel portals and the center record in wide desktop browser tabs. They dynamically scale to maintain spacious fairway lanes, and disappear automatically on mobile and portrait views!</p>
+                  </div>
                 </div>
               </div>
 

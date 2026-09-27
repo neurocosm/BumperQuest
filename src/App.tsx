@@ -45,6 +45,7 @@ export const App: React.FC = () => {
     vectorGlow: true,
     soundEnabled: true,
     spikedPinwheels: true,
+    tripleBumpers: true,
     gyroTiltEnabled: false,
   });
 

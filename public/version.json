@@ -1,5 +1,5 @@
 {
-  "version": "v1.09272026.0508",
-  "buildTime": "2026-09-27T05:08:00.000Z",
-  "notes": "Reduced record size by 7% and reduced moving drain relief bumpers width by 10% in portrait mode to give balls more open room to freely move around on mobile."
+  "version": "v1.09272026.0526",
+  "buildTime": "2026-09-27T05:26:00.000Z",
+  "notes": "Dynamically scaled the rotating triple bumpers down to a more compact, delicate profile, and restricted their appearance strictly to wide desktop browser tabs (width >= 960px & aspect ratio >= 1.30)."
 }
