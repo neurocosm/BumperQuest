@@ -378,6 +378,7 @@ export class BumperQuestEngine {
   private animFrameId: number | null = null;
   private dotEatCounter: number = 0;
   private bumperMoveTimer: number = 0;
+  private tunnelSpawnSide: 'left' | 'right' = 'left';
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -506,6 +507,137 @@ export class BumperQuestEngine {
       visitedFlippers: new Set<string>(),
       visitedMultipliers: new Set<number>(),
     });
+  }
+
+  /**
+   * Spawns an extra pinball by clicking/tapping the DJ Tonearm needle!
+   * Instead of dropping into the center vinyl where compact 45 RPM mode could destroy it,
+   * the DJ cue sends a transmission signal and launches balls flying out of the side tunnels
+   * alternately (Left tunnel -> Right tunnel -> Left -> Right...).
+   */
+  public spawnBallFromTonearm(): boolean {
+    if (this.balls.length >= 8) {
+      this.notices.push({
+        text: 'MAX BALLS (8)!',
+        x: this.needleArm.pivotX - 60,
+        y: this.needleArm.pivotY + 20,
+        vy: -0.3,
+        life: 0,
+        maxLife: 45,
+        color: '#ff0055',
+      });
+      return false;
+    }
+
+    const arm = this.needleArm;
+    const angle = arm.currentAngle;
+    const tipX = arm.pivotX + Math.cos(angle) * arm.length;
+    const tipY = arm.pivotY + Math.sin(angle) * arm.length;
+
+    // Needle arm visual & audio activation cue
+    arm.chargeGlow = 1.0;
+    arm.hitGlow = 1.0;
+    soundSynth.playBumperChime(4);
+    soundSynth.playTurntableScratch(0.8);
+    this.addSparks(tipX, tipY, '#ffea00', 16);
+    this.shockwaves.push({
+      x: tipX,
+      y: tipY,
+      radius: 8,
+      maxRadius: 65,
+      color: '#00f3ff',
+      alpha: 1.0,
+    });
+
+    // Alternating tunnel spawn: 'left' or 'right'
+    const spawnFromLeft = this.tunnelSpawnSide === 'left';
+    this.tunnelSpawnSide = spawnFromLeft ? 'right' : 'left';
+
+    const pad = 18;
+    const tunnelMidY = this.height / 2;
+    const tunnelTop = this.height * 0.43;
+    const tunnelBottom = this.height * 0.57;
+    const tunnelY = tunnelMidY + (Math.random() - 0.5) * (tunnelBottom - tunnelTop) * 0.45;
+
+    // Launch coordinates just outside the portal mouth into the playfield
+    const startX = spawnFromLeft ? pad + 18 : this.width - pad - 18;
+    const startY = tunnelY;
+
+    // Ball flies out horizontally inward with exciting energetic speed and subtle arc
+    const speedX = 8.5 + Math.random() * 2.5;
+    const vx = spawnFromLeft ? speedX : -speedX;
+    const vy = (Math.random() - 0.5) * 3.5;
+
+    const colors = ['#00f3ff', '#ff0055', '#ffaa00', '#00ff66', '#a855f7'];
+    const color = colors[this.balls.length % colors.length];
+
+    this.balls.push({
+      id: Date.now() + Math.random(),
+      x: startX,
+      y: startY,
+      vx,
+      vy,
+      radius: 9,
+      color,
+      trail: [],
+      lastBounceTime: 0,
+      visitedFlippers: new Set<string>(),
+      visitedMultipliers: new Set<number>(),
+    });
+
+    // Tunnel exit effects
+    const tunnelColor = spawnFromLeft ? '#00f3ff' : '#ff00aa';
+    soundSynth.playPacManWarpSound();
+    this.addSparks(startX, startY, tunnelColor, 22);
+    this.addSparks(startX, startY, '#ffffff', 10);
+    this.shockwaves.push({
+      x: startX,
+      y: startY,
+      radius: 10,
+      maxRadius: 75,
+      color: tunnelColor,
+      alpha: 1.0,
+    });
+
+    this.notices.push({
+      text: spawnFromLeft ? '◀ TUNNEL LAUNCH! +1' : '+1 TUNNEL LAUNCH! ▶',
+      x: spawnFromLeft ? startX + 55 : startX - 55,
+      y: startY - 14,
+      vy: -0.35,
+      life: 0,
+      maxLife: 55,
+      color: tunnelColor,
+    });
+
+    return true;
+  }
+
+  /**
+   * Hit tests whether a click/touch coordinate is near the Tonearm assembly or cartridge head.
+   */
+  public hitTestTonearm(x: number, y: number): boolean {
+    const arm = this.needleArm;
+    const angle = arm.currentAngle;
+    const tipX = arm.pivotX + Math.cos(angle) * arm.length;
+    const tipY = arm.pivotY + Math.sin(angle) * arm.length;
+
+    // Generous touch target around stylus cartridge tip
+    const tipDist = Math.hypot(x - tipX, y - tipY);
+    if (tipDist <= 38) return true;
+
+    // Distance to tonearm line segment from pivot to tip
+    const px = tipX - arm.pivotX;
+    const py = tipY - arm.pivotY;
+    const l2 = px * px + py * py;
+    if (l2 === 0) return Math.hypot(x - arm.pivotX, y - arm.pivotY) <= 30;
+
+    let t = ((x - arm.pivotX) * px + (y - arm.pivotY) * py) / l2;
+    t = Math.max(0, Math.min(1, t));
+    const projX = arm.pivotX + t * px;
+    const projY = arm.pivotY + t * py;
+    const segDist = Math.hypot(x - projX, y - projY);
+
+    return segDist <= 28;
   }
 
   public spawnCourtesyBall() {
@@ -3759,6 +3891,22 @@ export class BumperQuestEngine {
       ctx.arc(7, 0, 2, 0, Math.PI * 2);
       ctx.fill();
 
+      // Interactive Add-a-Ball cue halo around stylus cartridge
+      const pulse = 0.5 + 0.5 * Math.sin(time * 6);
+      ctx.strokeStyle = `rgba(255, 234, 0, ${0.4 + 0.5 * pulse})`;
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([2, 2]);
+      ctx.beginPath();
+      ctx.arc(4, 0, 10 + pulse * 3, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Subtle + mini label on headshell
+      ctx.font = '700 6px "Press Start 2P", monospace';
+      ctx.fillStyle = '#00f3ff';
+      ctx.textAlign = 'center';
+      ctx.fillText('+', 2, -7);
+
       if (arm.isExtended && Math.random() < 0.2) {
         this.addSparks(tipX, tipY, '#00f3ff', 1);
       }
@@ -4455,24 +4603,54 @@ export class BumperQuestEngine {
       ctx.restore();
     }
 
-    // 7.5. Symmetrical Bottom Corner Enclosure Bays (enclosing bottom effectors like the top corner chambers)
+    // 7.5. Symmetrical Corner Enclosure Bays (enclosing top and bottom corner gadgets)
     ctx.save();
     ctx.strokeStyle = 'rgba(0, 243, 255, 0.45)';
     ctx.lineWidth = 2;
     ctx.shadowColor = '#00f3ff';
     ctx.shadowBlur = 8;
 
-    // Bottom-Left Enclosed Corner Arch: from side boundary around effector to bottom wall
+    // Top-Left Enclosed Corner Arch: from side boundary around top-left gadget to top wall
+    ctx.beginPath();
+    ctx.moveTo(18, 75);
+    ctx.quadraticCurveTo(18, 22, w * 0.16, 14);
+    ctx.stroke();
+
+    // Top-Right Enclosed Corner Arch: from side boundary around top-right gadget to top wall
+    ctx.beginPath();
+    ctx.moveTo(w - 18, 75);
+    ctx.quadraticCurveTo(w - 18, 22, w * 0.84, 14);
+    ctx.stroke();
+
+    // Bottom-Left Enclosed Corner Arch: from side boundary around bottom-left gadget to bottom wall
     ctx.beginPath();
     ctx.moveTo(18, h - 75);
     ctx.quadraticCurveTo(18, h - 22, w * 0.16, h - 14);
     ctx.stroke();
 
-    // Bottom-Right Enclosed Corner Arch: from side boundary around effector to bottom wall
+    // Bottom-Right Enclosed Corner Arch: from side boundary around bottom-right gadget to bottom wall
     ctx.beginPath();
     ctx.moveTo(w - 18, h - 75);
     ctx.quadraticCurveTo(w - 18, h - 22, w * 0.84, h - 14);
     ctx.stroke();
+
+    // Strobe guide dots along top corner enclosure arcs
+    for (let i = 1; i <= 3; i++) {
+      const frac = i / 4;
+      const tlx = (1 - frac) * (1 - frac) * 18 + 2 * (1 - frac) * frac * 18 + frac * frac * (w * 0.16);
+      const tly = (1 - frac) * (1 - frac) * 75 + 2 * (1 - frac) * frac * 22 + frac * frac * 14;
+      ctx.fillStyle = 'rgba(0, 243, 255, 0.75)';
+      ctx.beginPath();
+      ctx.arc(tlx, tly, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+
+      const trx = (1 - frac) * (1 - frac) * (w - 18) + 2 * (1 - frac) * frac * (w - 18) + frac * frac * (w * 0.84);
+      const try_val = (1 - frac) * (1 - frac) * 75 + 2 * (1 - frac) * frac * 22 + frac * frac * 14;
+      ctx.fillStyle = 'rgba(168, 85, 247, 0.75)';
+      ctx.beginPath();
+      ctx.arc(trx, try_val, 1.8, 0, Math.PI * 2);
+      ctx.fill();
+    }
 
     // Strobe guide dots along bottom corner enclosure arcs
     for (let i = 1; i <= 3; i++) {

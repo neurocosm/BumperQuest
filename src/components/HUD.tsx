@@ -439,11 +439,11 @@ export const HUD: React.FC<HUDProps> = ({
             {/* Spawn Ball */}
             <button
               onClick={onSpawnBall}
-              title="Spawn Extra Pinball"
+              title="Launch Extra Ball via DJ Needle Arm (or tap the Tonearm Cartridge in-game)"
               className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-cyan-600/30 hover:bg-cyan-600/50 border border-cyan-400/50 text-cyan-300 text-xs font-mono font-bold transition-all active:scale-95"
             >
               <Plus className="w-3 h-3" />
-              <span>+Ball ({ballCount})</span>
+              <span>Needle Drop ({ballCount})</span>
             </button>
 
             {ballCount > 1 && (

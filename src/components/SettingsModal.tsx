@@ -228,7 +228,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <p className="text-[11px] text-slate-300">
                 {settings.autoPilot
                   ? 'AI pilots all 4 flippers autonomously. Switch to MANUAL to take 100% control with Q, E, Z, C or corner taps!'
-                  : 'MANUAL MODE ACTIVE: You control the flippers! AI assistance is turned off.'}
+                  : 'MANUAL MODE ACTIVE: Q, E, Z, C (or corner taps) control flippers. Tap the DJ Tonearm needle cartridge to drop extra balls!'}
               </p>
             </div>
             <button

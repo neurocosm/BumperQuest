@@ -324,10 +324,6 @@ export const App: React.FC = () => {
         setTilt(prev => ({ ...prev, y: 0.3 }));
       }
 
-      if (e.code === 'Space') {
-        engineRef.current.spawnBall();
-      }
-
       // P key toggles pause
       if (e.code === 'KeyP') {
         engineRef.current.togglePause();
@@ -410,14 +406,14 @@ export const App: React.FC = () => {
       return;
     }
 
-    // Check if clicked near needle arm
-    const arm = engineRef.current.needleArm;
-    const armDist = Math.hypot(x - arm.pivotX, y - arm.pivotY);
-    if (armDist < arm.length + 25) {
-      if (arm.isSuperActive) {
+    // Check if clicked near needle arm / cartridge head
+    if (engineRef.current.hitTestTonearm(x, y)) {
+      if (engineRef.current.needleArm.isSuperActive) {
         engineRef.current.triggerNeedleFlipper();
-        return;
+      } else {
+        engineRef.current.spawnBallFromTonearm();
       }
+      return;
     }
 
     // Check if clicked near Top-Left Slicer
@@ -453,11 +449,6 @@ export const App: React.FC = () => {
       engineRef.current.turntable.scratchGlow = 1.0;
       engineRef.current.turntable.scratchImpulse = (Math.random() > 0.5 ? 1 : -1) * 0.12;
       soundSynth.playTurntableScratch(1.5);
-    } else {
-      // Spawn extra ball at click position if under 8 balls
-      if (engineRef.current.balls.length < 8) {
-        engineRef.current.spawnBall(x, y);
-      }
     }
   };
 
@@ -476,6 +467,17 @@ export const App: React.FC = () => {
 
     if (distToCenter <= labelRadius) {
       engineRef.current.togglePause();
+      return;
+    }
+
+    // Touch on needle arm cartridge head -> spawn extra ball with needle drop sound!
+    if (engineRef.current.hitTestTonearm(x, y)) {
+      if (engineRef.current.needleArm.isSuperActive) {
+        engineRef.current.triggerNeedleFlipper();
+      } else {
+        engineRef.current.spawnBallFromTonearm();
+      }
+      return;
     }
   };
 
@@ -496,7 +498,7 @@ export const App: React.FC = () => {
 
   const handleSpawnBall = () => {
     handleUserInteraction();
-    engineRef.current?.spawnBall();
+    engineRef.current?.spawnBallFromTonearm();
   };
 
   const handleClearBalls = () => {
