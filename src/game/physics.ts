@@ -378,7 +378,15 @@ export class BumperQuestEngine {
   private animFrameId: number | null = null;
   private dotEatCounter: number = 0;
   private bumperMoveTimer: number = 0;
-  private tunnelSpawnSide: 'left' | 'right' = 'left';
+  private tunnelSpawnSide: 'left' | 'right' | 'top' | 'bottom' = 'left';
+
+  // Dimensional Matrix Swap: Every 60s, swap the 2 drains & 2 tunnels between Top/Bottom and Left/Right
+  public isAxisSwapped: boolean = false;
+  public axisSwapTimer: number = 60.0;
+  public readonly AXIS_SWAP_INTERVAL: number = 60.0;
+  public swapWarningCountdown: number = 0; // Active during final 3s
+  public swapTransitionProgress: number = 0; // Smooth visual interpolation 0 to 1
+  private lastWarningBeepSecond: number = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -549,24 +557,53 @@ export class BumperQuestEngine {
       alpha: 1.0,
     });
 
-    // Alternating tunnel spawn: 'left' or 'right'
-    const spawnFromLeft = this.tunnelSpawnSide === 'left';
-    this.tunnelSpawnSide = spawnFromLeft ? 'right' : 'left';
-
     const pad = 18;
-    const tunnelMidY = this.height / 2;
-    const tunnelTop = this.height * 0.43;
-    const tunnelBottom = this.height * 0.57;
-    const tunnelY = tunnelMidY + (Math.random() - 0.5) * (tunnelBottom - tunnelTop) * 0.45;
+    let startX: number;
+    let startY: number;
+    let vx: number;
+    let vy: number;
+    let noticeText: string;
+    let tunnelColor: string;
 
-    // Launch coordinates just outside the portal mouth into the playfield
-    const startX = spawnFromLeft ? pad + 18 : this.width - pad - 18;
-    const startY = tunnelY;
+    if (!this.isAxisSwapped) {
+      // Standard Mode: Alternate between Left and Right portals
+      const spawnFromLeft = this.tunnelSpawnSide !== 'right';
+      this.tunnelSpawnSide = spawnFromLeft ? 'right' : 'left';
 
-    // Ball flies out horizontally inward with exciting energetic speed and subtle arc
-    const speedX = 8.5 + Math.random() * 2.5;
-    const vx = spawnFromLeft ? speedX : -speedX;
-    const vy = (Math.random() - 0.5) * 3.5;
+      const tunnelMidY = this.height / 2;
+      const tunnelTop = this.height * 0.43;
+      const tunnelBottom = this.height * 0.57;
+      const tunnelY = tunnelMidY + (Math.random() - 0.5) * (tunnelBottom - tunnelTop) * 0.45;
+
+      startX = spawnFromLeft ? pad + 18 : this.width - pad - 18;
+      startY = tunnelY;
+
+      const speedX = 8.5 + Math.random() * 2.5;
+      vx = spawnFromLeft ? speedX : -speedX;
+      vy = (Math.random() - 0.5) * 3.5;
+
+      tunnelColor = spawnFromLeft ? '#00f3ff' : '#ff00aa';
+      noticeText = spawnFromLeft ? '◀ TUNNEL LAUNCH! +1' : '+1 TUNNEL LAUNCH! ▶';
+    } else {
+      // Swapped Mode: Alternate between Top and Bottom portals
+      const spawnFromTop = this.tunnelSpawnSide !== 'bottom';
+      this.tunnelSpawnSide = spawnFromTop ? 'bottom' : 'top';
+
+      const tunnelMidX = this.width / 2;
+      const tunnelLeft = this.width * 0.43;
+      const tunnelRight = this.width * 0.57;
+      const tunnelX = tunnelMidX + (Math.random() - 0.5) * (tunnelRight - tunnelLeft) * 0.45;
+
+      startX = tunnelX;
+      startY = spawnFromTop ? pad + 18 : this.height - pad - 18;
+
+      const speedY = 8.5 + Math.random() * 2.5;
+      vx = (Math.random() - 0.5) * 3.5;
+      vy = spawnFromTop ? speedY : -speedY;
+
+      tunnelColor = spawnFromTop ? '#00f3ff' : '#ff00aa';
+      noticeText = spawnFromTop ? '▲ TOP WARP LAUNCH! +1' : '▼ BOT WARP LAUNCH! +1';
+    }
 
     const colors = ['#00f3ff', '#ff0055', '#ffaa00', '#00ff66', '#a855f7'];
     const color = colors[this.balls.length % colors.length];
@@ -586,7 +623,6 @@ export class BumperQuestEngine {
     });
 
     // Tunnel exit effects
-    const tunnelColor = spawnFromLeft ? '#00f3ff' : '#ff00aa';
     soundSynth.playPacManWarpSound();
     this.addSparks(startX, startY, tunnelColor, 22);
     this.addSparks(startX, startY, '#ffffff', 10);
@@ -600,8 +636,8 @@ export class BumperQuestEngine {
     });
 
     this.notices.push({
-      text: spawnFromLeft ? '◀ TUNNEL LAUNCH! +1' : '+1 TUNNEL LAUNCH! ▶',
-      x: spawnFromLeft ? startX + 55 : startX - 55,
+      text: noticeText,
+      x: startX,
       y: startY - 14,
       vy: -0.35,
       life: 0,
@@ -1332,6 +1368,9 @@ export class BumperQuestEngine {
       }
     }
 
+    // 5.58. Update Dimensional Axis Swap (Every 60s, swap drains and tunnels between Top/Bottom and Left/Right)
+    this.updateAxisSwap(dt);
+
     // 5.6. Update Secret Super Flipper Needle Tonearm
     this.updateNeedleArm(dt);
 
@@ -1770,6 +1809,88 @@ export class BumperQuestEngine {
     arm.hitGlow = Math.max(0, arm.hitGlow - dt * 2.5);
   }
 
+  /**
+   * Dimensional Matrix Swap:
+   * Every 60s, swap the 2 drains & 2 tunnels between (Top/Bottom) and (Left/Right).
+   * 3-second gentle warning countdown beep without disturbing gameplay or auto-pilot.
+   */
+  private updateAxisSwap(dt: number) {
+    this.axisSwapTimer -= dt;
+
+    // Gentle warning during the final 3 seconds
+    if (this.axisSwapTimer <= 3.0 && this.axisSwapTimer > 0) {
+      const ceilSec = Math.ceil(this.axisSwapTimer);
+      if (ceilSec !== this.lastWarningBeepSecond && ceilSec >= 1 && ceilSec <= 3) {
+        this.lastWarningBeepSecond = ceilSec;
+        soundSynth.playSwapWarningBeep(4 - ceilSec);
+      }
+      this.swapWarningCountdown = ceilSec;
+    } else {
+      this.swapWarningCountdown = 0;
+      this.lastWarningBeepSecond = 0;
+    }
+
+    // Trigger the swap at 0
+    if (this.axisSwapTimer <= 0) {
+      this.isAxisSwapped = !this.isAxisSwapped;
+      this.axisSwapTimer = this.AXIS_SWAP_INTERVAL;
+      this.swapTransitionProgress = 1.0;
+
+      soundSynth.playDimensionalSwapSound();
+
+      // Non-intrusive floating notice near top-center
+      this.notices.push({
+        text: this.isAxisSwapped ? '🌀 MATRIX SHIFT: SIDES = DRAIN | VERTICAL = WARP!' : '🌀 MATRIX SHIFT: VERTICAL = DRAIN | SIDES = WARP!',
+        x: this.width / 2,
+        y: 42,
+        vy: -0.25,
+        life: 0,
+        maxLife: 80,
+        color: this.isAxisSwapped ? '#ff00aa' : '#00f3ff',
+      });
+
+      // Subtle arena shockwaves at the four portal/drain locations
+      const pad = 18;
+      this.shockwaves.push({
+        x: pad,
+        y: this.height / 2,
+        radius: 10,
+        maxRadius: 70,
+        color: this.isAxisSwapped ? '#ff0055' : '#00f3ff',
+        alpha: 0.9,
+      });
+      this.shockwaves.push({
+        x: this.width - pad,
+        y: this.height / 2,
+        radius: 10,
+        maxRadius: 70,
+        color: this.isAxisSwapped ? '#ff0055' : '#ff00aa',
+        alpha: 0.9,
+      });
+      this.shockwaves.push({
+        x: this.width / 2,
+        y: pad,
+        radius: 10,
+        maxRadius: 70,
+        color: this.isAxisSwapped ? '#00f3ff' : '#ff0055',
+        alpha: 0.9,
+      });
+      this.shockwaves.push({
+        x: this.width / 2,
+        y: this.height - pad,
+        radius: 10,
+        maxRadius: 70,
+        color: this.isAxisSwapped ? '#ff00aa' : '#ff0055',
+        alpha: 0.9,
+      });
+    }
+
+    // Fade transition glow
+    if (this.swapTransitionProgress > 0) {
+      this.swapTransitionProgress = Math.max(0, this.swapTransitionProgress - dt * 2.0);
+    }
+  }
+
   public triggerNeedleFlipper() {
     if (this.needleArm.isFlipping) return;
     this.needleArm.isFlipping = true;
@@ -2003,181 +2124,363 @@ export class BumperQuestEngine {
         ball.trail.pop();
       }
 
-      // 1. Playfield Outer Boundary Walls, Top/Bottom Gutter Drains & Pac-Man Side Warp Tunnels
+      // 1. Playfield Outer Boundary Walls, Drains & Pac-Man Warp Tunnels
+      // Dimensional Swap: Standard = (Top/Bottom Drains, Left/Right Tunnels)
+      //                   Swapped  = (Left/Right Drains, Top/Bottom Tunnels)
       const pad = 18;
       const drainLeft = this.width * 0.43;
       const drainRight = this.width * 0.57;
+      const drainTop = this.height * 0.43;
+      const drainBottom = this.height * 0.57;
+
       const tunnelTop = this.height * 0.43;
       const tunnelBottom = this.height * 0.57;
+      const tunnelLeft = this.width * 0.43;
+      const tunnelRight = this.width * 0.57;
 
-      // Left Wall & Pac-Man Left Warp Tunnel
-      if (ball.x - ball.radius < pad) {
-        if (ball.y >= tunnelTop && ball.y <= tunnelBottom) {
-          // Inside Pac-Man Left Tunnel -> Teleport to Right Tunnel Exit!
-          ball.x = this.width - pad - ball.radius - 2;
-          this.addSparks(pad, ball.y, '#00f3ff', 12);
-          this.addSparks(ball.x, ball.y, '#ff00aa', 12);
-          soundSynth.playPacManWarpSound();
-          this.notices.push({
-            text: 'PAC-WARP >>',
-            x: ball.x - 35,
-            y: ball.y,
-            vy: -0.3,
-            life: 0,
-            maxLife: 45,
-            color: '#00f3ff',
-          });
-        } else {
-          // Solid left wall bounce
-          ball.x = pad + ball.radius;
-          ball.vx = -ball.vx * this.restitution;
-          this.addSparks(ball.x, ball.y, ball.color, 4);
-        }
-      } else if (ball.x + ball.radius > this.width - pad) {
-        if (ball.y >= tunnelTop && ball.y <= tunnelBottom) {
-          // Inside Pac-Man Right Tunnel -> Teleport to Left Tunnel Exit!
-          ball.x = pad + ball.radius + 2;
-          this.addSparks(this.width - pad, ball.y, '#ff00aa', 12);
-          this.addSparks(ball.x, ball.y, '#00f3ff', 12);
-          soundSynth.playPacManWarpSound();
-          this.notices.push({
-            text: '<< PAC-WARP',
-            x: ball.x + 35,
-            y: ball.y,
-            vy: -0.3,
-            life: 0,
-            maxLife: 45,
-            color: '#ff00aa',
-          });
-        } else {
-          // Solid right wall bounce
-          ball.x = this.width - pad - ball.radius;
-          ball.vx = -ball.vx * this.restitution;
-          this.addSparks(ball.x, ball.y, ball.color, 4);
-        }
-      }
-
-      // Top Wall, Top Bowing Elastic Bumpers & Top Gutter Drain
-      const topArchControlY = 38 + this.topFlairGlow * 10;
-      if (ball.x >= drainLeft && ball.x <= drainRight) {
-        if (ball.y - ball.radius < 10) {
-          // Ball drains through the Top Gutter!
-          this.addSparks(ball.x, 0, '#ff0055', 18);
-          this.shockwaves.push({
-            x: ball.x,
-            y: 8,
-            radius: 8,
-            maxRadius: 80,
-            color: '#ff0055',
-            alpha: 1.0,
-          });
-          soundSynth.playBallDrainSound();
-
-          this.balls.splice(bIdx, 1);
-
-          if (this.balls.length === 0 && (!this.stasisChamber.capturedBalls || this.stasisChamber.capturedBalls.length === 0)) {
-            this.triggerGameOver();
-          } else if (this.balls.length === 0 && this.stasisChamber.capturedBalls && this.stasisChamber.capturedBalls.length > 0) {
-            this.spawnCourtesyBall();
+      if (!this.isAxisSwapped) {
+        // STANDARD MODE: Left/Right = Warp Tunnels, Top/Bottom = Gutter Drains & Bowing Elastic Bumpers
+        // Left Wall & Pac-Man Left Warp Tunnel
+        if (ball.x - ball.radius < pad) {
+          if (ball.y >= tunnelTop && ball.y <= tunnelBottom) {
+            // Inside Pac-Man Left Tunnel -> Teleport to Right Tunnel Exit!
+            ball.x = this.width - pad - ball.radius - 2;
+            this.addSparks(pad, ball.y, '#00f3ff', 12);
+            this.addSparks(ball.x, ball.y, '#ff00aa', 12);
+            soundSynth.playPacManWarpSound();
+            this.notices.push({
+              text: 'PAC-WARP >>',
+              x: ball.x - 35,
+              y: ball.y,
+              vy: -0.3,
+              life: 0,
+              maxLife: 45,
+              color: '#00f3ff',
+            });
+          } else {
+            // Solid left wall bounce
+            ball.x = pad + ball.radius;
+            ball.vx = -ball.vx * this.restitution;
+            this.addSparks(ball.x, ball.y, ball.color, 4);
           }
-          continue;
+        } else if (ball.x + ball.radius > this.width - pad) {
+          if (ball.y >= tunnelTop && ball.y <= tunnelBottom) {
+            // Inside Pac-Man Right Tunnel -> Teleport to Left Tunnel Exit!
+            ball.x = pad + ball.radius + 2;
+            this.addSparks(this.width - pad, ball.y, '#ff00aa', 12);
+            this.addSparks(ball.x, ball.y, '#00f3ff', 12);
+            soundSynth.playPacManWarpSound();
+            this.notices.push({
+              text: '<< PAC-WARP',
+              x: ball.x + 35,
+              y: ball.y,
+              vy: -0.3,
+              life: 0,
+              maxLife: 45,
+              color: '#ff00aa',
+            });
+          } else {
+            // Solid right wall bounce
+            ball.x = this.width - pad - ball.radius;
+            ball.vx = -ball.vx * this.restitution;
+            this.addSparks(ball.x, ball.y, ball.color, 4);
+          }
         }
-      } else if (ball.x >= this.width * 0.16 && ball.x < drainLeft) {
-        // Top-Left Bowing Elastic Bumper Arch
-        const t = (ball.x - this.width * 0.16) / (drainLeft - this.width * 0.16);
-        const archY = (1 - t) * (1 - t) * 14 + 2 * (1 - t) * t * topArchControlY + t * t * 14;
-        if (ball.y - ball.radius <= archY) {
-          ball.y = archY + ball.radius + 1;
-          ball.vy = Math.max(7.5, Math.abs(ball.vy) * 1.25 + 3.5);
-          ball.vx += (t < 0.5 ? 1.5 : -1.5);
-          this.topFlairGlow = 1.0;
-          soundSynth.playElasticBumperSnap();
-          this.totalBumps++;
-          this.score += 150 * this.currentMultiplier;
-          this.addSparks(ball.x, ball.y, '#00f3ff', 8);
+
+        // Top Wall, Top Bowing Elastic Bumpers & Top Gutter Drain
+        const topArchControlY = 38 + this.topFlairGlow * 10;
+        if (ball.x >= drainLeft && ball.x <= drainRight) {
+          if (ball.y - ball.radius < 10) {
+            // Ball drains through the Top Gutter!
+            this.addSparks(ball.x, 0, '#ff0055', 18);
+            this.shockwaves.push({
+              x: ball.x,
+              y: 8,
+              radius: 8,
+              maxRadius: 80,
+              color: '#ff0055',
+              alpha: 1.0,
+            });
+            soundSynth.playBallDrainSound();
+
+            this.balls.splice(bIdx, 1);
+
+            if (this.balls.length === 0 && (!this.stasisChamber.capturedBalls || this.stasisChamber.capturedBalls.length === 0)) {
+              this.triggerGameOver();
+            } else if (this.balls.length === 0 && this.stasisChamber.capturedBalls && this.stasisChamber.capturedBalls.length > 0) {
+              this.spawnCourtesyBall();
+            }
+            continue;
+          }
+        } else if (ball.x >= this.width * 0.16 && ball.x < drainLeft) {
+          // Top-Left Bowing Elastic Bumper Arch
+          const t = (ball.x - this.width * 0.16) / (drainLeft - this.width * 0.16);
+          const archY = (1 - t) * (1 - t) * 14 + 2 * (1 - t) * t * topArchControlY + t * t * 14;
+          if (ball.y - ball.radius <= archY) {
+            ball.y = archY + ball.radius + 1;
+            ball.vy = Math.max(7.5, Math.abs(ball.vy) * 1.25 + 3.5);
+            ball.vx += (t < 0.5 ? 1.5 : -1.5);
+            this.topFlairGlow = 1.0;
+            soundSynth.playElasticBumperSnap();
+            this.totalBumps++;
+            this.score += 150 * this.currentMultiplier;
+            this.addSparks(ball.x, ball.y, '#00f3ff', 8);
+          }
+        } else if (ball.x > drainRight && ball.x <= this.width * 0.84) {
+          // Top-Right Bowing Elastic Bumper Arch
+          const t = (ball.x - drainRight) / (this.width * 0.84 - drainRight);
+          const archY = (1 - t) * (1 - t) * 14 + 2 * (1 - t) * t * topArchControlY + t * t * 14;
+          if (ball.y - ball.radius <= archY) {
+            ball.y = archY + ball.radius + 1;
+            ball.vy = Math.max(7.5, Math.abs(ball.vy) * 1.25 + 3.5);
+            ball.vx += (t < 0.5 ? 1.5 : -1.5);
+            this.topFlairGlow = 1.0;
+            soundSynth.playElasticBumperSnap();
+            this.totalBumps++;
+            this.score += 150 * this.currentMultiplier;
+            this.addSparks(ball.x, ball.y, '#00f3ff', 8);
+          }
+        } else {
+          // Solid top corner wall bounce
+          if (ball.y - ball.radius < pad) {
+            ball.y = pad + ball.radius;
+            ball.vy = -ball.vy * this.restitution;
+            this.addSparks(ball.x, ball.y, ball.color, 4);
+          }
         }
-      } else if (ball.x > drainRight && ball.x <= this.width * 0.84) {
-        // Top-Right Bowing Elastic Bumper Arch
-        const t = (ball.x - drainRight) / (this.width * 0.84 - drainRight);
-        const archY = (1 - t) * (1 - t) * 14 + 2 * (1 - t) * t * topArchControlY + t * t * 14;
-        if (ball.y - ball.radius <= archY) {
-          ball.y = archY + ball.radius + 1;
-          ball.vy = Math.max(7.5, Math.abs(ball.vy) * 1.25 + 3.5);
-          ball.vx += (t < 0.5 ? 1.5 : -1.5);
-          this.topFlairGlow = 1.0;
-          soundSynth.playElasticBumperSnap();
-          this.totalBumps++;
-          this.score += 150 * this.currentMultiplier;
-          this.addSparks(ball.x, ball.y, '#00f3ff', 8);
+
+        // Bottom Wall, Bottom Bowing Elastic Bumpers & Bottom Gutter Drain
+        const botArchControlY = (this.height - 38) - this.bottomFlairGlow * 10;
+        if (ball.x >= drainLeft && ball.x <= drainRight) {
+          if (ball.y + ball.radius > this.height - 10) {
+            // Ball drains into the bottom abyss!
+            this.addSparks(ball.x, this.height, '#ff0055', 18);
+            this.shockwaves.push({
+              x: ball.x,
+              y: this.height - 8,
+              radius: 8,
+              maxRadius: 80,
+              color: '#ff0055',
+              alpha: 1.0,
+            });
+            soundSynth.playBallDrainSound();
+
+            this.balls.splice(bIdx, 1);
+
+            if (this.balls.length === 0 && (!this.stasisChamber.capturedBalls || this.stasisChamber.capturedBalls.length === 0)) {
+              this.triggerGameOver();
+            } else if (this.balls.length === 0 && this.stasisChamber.capturedBalls && this.stasisChamber.capturedBalls.length > 0) {
+              this.spawnCourtesyBall();
+            }
+            continue;
+          }
+        } else if (ball.x >= this.width * 0.16 && ball.x < drainLeft) {
+          // Bottom-Left Bowing Elastic Bumper Arch
+          const t = (ball.x - this.width * 0.16) / (drainLeft - this.width * 0.16);
+          const archY = (1 - t) * (1 - t) * (this.height - 14) + 2 * (1 - t) * t * botArchControlY + t * t * (this.height - 14);
+          if (ball.y + ball.radius >= archY) {
+            ball.y = archY - ball.radius - 1;
+            ball.vy = -Math.max(7.5, Math.abs(ball.vy) * 1.25 + 3.5);
+            ball.vx += (t < 0.5 ? 1.5 : -1.5);
+            this.bottomFlairGlow = 1.0;
+            soundSynth.playElasticBumperSnap();
+            this.totalBumps++;
+            this.score += 150 * this.currentMultiplier;
+            this.addSparks(ball.x, ball.y, '#ff0055', 8);
+          }
+        } else if (ball.x > drainRight && ball.x <= this.width * 0.84) {
+          // Bottom-Right Bowing Elastic Bumper Arch
+          const t = (ball.x - drainRight) / (this.width * 0.84 - drainRight);
+          const archY = (1 - t) * (1 - t) * (this.height - 14) + 2 * (1 - t) * t * botArchControlY + t * t * (this.height - 14);
+          if (ball.y + ball.radius >= archY) {
+            ball.y = archY - ball.radius - 1;
+            ball.vy = -Math.max(7.5, Math.abs(ball.vy) * 1.25 + 3.5);
+            ball.vx += (t < 0.5 ? 1.5 : -1.5);
+            this.bottomFlairGlow = 1.0;
+            soundSynth.playElasticBumperSnap();
+            this.totalBumps++;
+            this.score += 150 * this.currentMultiplier;
+            this.addSparks(ball.x, ball.y, '#ff0055', 8);
+          }
+        } else {
+          // Solid bottom corner wall bounce
+          if (ball.y + ball.radius > this.height - 10) {
+            ball.y = this.height - 10 - ball.radius;
+            ball.vy = -ball.vy * this.restitution;
+            this.addSparks(ball.x, ball.y, ball.color, 4);
+          }
         }
       } else {
-        // Solid top corner wall bounce
+        // SWAPPED MODE: Top/Bottom = Warp Tunnels, Left/Right = Gutter Drains & Bowing Elastic Bumpers!
+        // Top Wall & Pac-Man Top Warp Tunnel
         if (ball.y - ball.radius < pad) {
-          ball.y = pad + ball.radius;
-          ball.vy = -ball.vy * this.restitution;
-          this.addSparks(ball.x, ball.y, ball.color, 4);
-        }
-      }
-
-      // Bottom Wall, Bottom Bowing Elastic Bumpers & Bottom Gutter Drain
-      const botArchControlY = (this.height - 38) - this.bottomFlairGlow * 10;
-      if (ball.x >= drainLeft && ball.x <= drainRight) {
-        if (ball.y + ball.radius > this.height - 10) {
-          // Ball drains into the bottom abyss!
-          this.addSparks(ball.x, this.height, '#ff0055', 18);
-          this.shockwaves.push({
-            x: ball.x,
-            y: this.height - 8,
-            radius: 8,
-            maxRadius: 80,
-            color: '#ff0055',
-            alpha: 1.0,
-          });
-          soundSynth.playBallDrainSound();
-
-          this.balls.splice(bIdx, 1);
-
-          if (this.balls.length === 0 && (!this.stasisChamber.capturedBalls || this.stasisChamber.capturedBalls.length === 0)) {
-            this.triggerGameOver();
-          } else if (this.balls.length === 0 && this.stasisChamber.capturedBalls && this.stasisChamber.capturedBalls.length > 0) {
-            this.spawnCourtesyBall();
+          if (ball.x >= tunnelLeft && ball.x <= tunnelRight) {
+            // Inside Pac-Man Top Tunnel -> Teleport to Bottom Tunnel Exit!
+            ball.y = this.height - pad - ball.radius - 2;
+            this.addSparks(ball.x, pad, '#00f3ff', 12);
+            this.addSparks(ball.x, ball.y, '#ff00aa', 12);
+            soundSynth.playPacManWarpSound();
+            this.notices.push({
+              text: '▼ PAC-WARP ▼',
+              x: ball.x,
+              y: ball.y - 20,
+              vy: -0.3,
+              life: 0,
+              maxLife: 45,
+              color: '#00f3ff',
+            });
+          } else {
+            // Solid top wall bounce
+            ball.y = pad + ball.radius;
+            ball.vy = -ball.vy * this.restitution;
+            this.addSparks(ball.x, ball.y, ball.color, 4);
           }
-          continue;
+        } else if (ball.y + ball.radius > this.height - pad) {
+          if (ball.x >= tunnelLeft && ball.x <= tunnelRight) {
+            // Inside Pac-Man Bottom Tunnel -> Teleport to Top Tunnel Exit!
+            ball.y = pad + ball.radius + 2;
+            this.addSparks(ball.x, this.height - pad, '#ff00aa', 12);
+            this.addSparks(ball.x, ball.y, '#00f3ff', 12);
+            soundSynth.playPacManWarpSound();
+            this.notices.push({
+              text: '▲ PAC-WARP ▲',
+              x: ball.x,
+              y: ball.y + 20,
+              vy: 0.3,
+              life: 0,
+              maxLife: 45,
+              color: '#ff00aa',
+            });
+          } else {
+            // Solid bottom wall bounce
+            ball.y = this.height - pad - ball.radius;
+            ball.vy = -ball.vy * this.restitution;
+            this.addSparks(ball.x, ball.y, ball.color, 4);
+          }
         }
-      } else if (ball.x >= this.width * 0.16 && ball.x < drainLeft) {
-        // Bottom-Left Bowing Elastic Bumper Arch
-        const t = (ball.x - this.width * 0.16) / (drainLeft - this.width * 0.16);
-        const archY = (1 - t) * (1 - t) * (this.height - 14) + 2 * (1 - t) * t * botArchControlY + t * t * (this.height - 14);
-        if (ball.y + ball.radius >= archY) {
-          ball.y = archY - ball.radius - 1;
-          ball.vy = -Math.max(7.5, Math.abs(ball.vy) * 1.25 + 3.5);
-          ball.vx += (t < 0.5 ? 1.5 : -1.5);
-          this.bottomFlairGlow = 1.0;
-          soundSynth.playElasticBumperSnap();
-          this.totalBumps++;
-          this.score += 150 * this.currentMultiplier;
-          this.addSparks(ball.x, ball.y, '#ff0055', 8);
+
+        // Left Gutter Drain & Bowing Bumpers
+        const leftArchControlX = 38 + this.topFlairGlow * 10;
+        if (ball.y >= drainTop && ball.y <= drainBottom) {
+          if (ball.x - ball.radius < 10) {
+            // Drains through the Left Gutter!
+            this.addSparks(0, ball.y, '#ff0055', 18);
+            this.shockwaves.push({
+              x: 8,
+              y: ball.y,
+              radius: 8,
+              maxRadius: 80,
+              color: '#ff0055',
+              alpha: 1.0,
+            });
+            soundSynth.playBallDrainSound();
+
+            this.balls.splice(bIdx, 1);
+
+            if (this.balls.length === 0 && (!this.stasisChamber.capturedBalls || this.stasisChamber.capturedBalls.length === 0)) {
+              this.triggerGameOver();
+            } else if (this.balls.length === 0 && this.stasisChamber.capturedBalls && this.stasisChamber.capturedBalls.length > 0) {
+              this.spawnCourtesyBall();
+            }
+            continue;
+          }
+        } else if (ball.y >= this.height * 0.16 && ball.y < drainTop) {
+          // Left-Top Bowing Elastic Rebound Arch
+          const t = (ball.y - this.height * 0.16) / (drainTop - this.height * 0.16);
+          const archX = (1 - t) * (1 - t) * 14 + 2 * (1 - t) * t * leftArchControlX + t * t * 14;
+          if (ball.x - ball.radius <= archX) {
+            ball.x = archX + ball.radius + 1;
+            ball.vx = Math.max(7.5, Math.abs(ball.vx) * 1.25 + 3.5);
+            ball.vy += (t < 0.5 ? 1.5 : -1.5);
+            this.topFlairGlow = 1.0;
+            soundSynth.playElasticBumperSnap();
+            this.totalBumps++;
+            this.score += 150 * this.currentMultiplier;
+            this.addSparks(ball.x, ball.y, '#00f3ff', 8);
+          }
+        } else if (ball.y > drainBottom && ball.y <= this.height * 0.84) {
+          // Left-Bottom Bowing Elastic Rebound Arch
+          const t = (ball.y - drainBottom) / (this.height * 0.84 - drainBottom);
+          const archX = (1 - t) * (1 - t) * 14 + 2 * (1 - t) * t * leftArchControlX + t * t * 14;
+          if (ball.x - ball.radius <= archX) {
+            ball.x = archX + ball.radius + 1;
+            ball.vx = Math.max(7.5, Math.abs(ball.vx) * 1.25 + 3.5);
+            ball.vy += (t < 0.5 ? 1.5 : -1.5);
+            this.bottomFlairGlow = 1.0;
+            soundSynth.playElasticBumperSnap();
+            this.totalBumps++;
+            this.score += 150 * this.currentMultiplier;
+            this.addSparks(ball.x, ball.y, '#ff0055', 8);
+          }
+        } else {
+          // Solid left corner wall bounce
+          if (ball.x - ball.radius < pad) {
+            ball.x = pad + ball.radius;
+            ball.vx = -ball.vx * this.restitution;
+            this.addSparks(ball.x, ball.y, ball.color, 4);
+          }
         }
-      } else if (ball.x > drainRight && ball.x <= this.width * 0.84) {
-        // Bottom-Right Bowing Elastic Bumper Arch
-        const t = (ball.x - drainRight) / (this.width * 0.84 - drainRight);
-        const archY = (1 - t) * (1 - t) * (this.height - 14) + 2 * (1 - t) * t * botArchControlY + t * t * (this.height - 14);
-        if (ball.y + ball.radius >= archY) {
-          ball.y = archY - ball.radius - 1;
-          ball.vy = -Math.max(7.5, Math.abs(ball.vy) * 1.25 + 3.5);
-          ball.vx += (t < 0.5 ? 1.5 : -1.5);
-          this.bottomFlairGlow = 1.0;
-          soundSynth.playElasticBumperSnap();
-          this.totalBumps++;
-          this.score += 150 * this.currentMultiplier;
-          this.addSparks(ball.x, ball.y, '#ff0055', 8);
-        }
-      } else {
-        // Solid bottom corner wall bounce
-        if (ball.y + ball.radius > this.height - 10) {
-          ball.y = this.height - 10 - ball.radius;
-          ball.vy = -ball.vy * this.restitution;
-          this.addSparks(ball.x, ball.y, ball.color, 4);
+
+        // Right Gutter Drain & Bowing Bumpers
+        const rightArchControlX = (this.width - 38) - this.bottomFlairGlow * 10;
+        if (ball.y >= drainTop && ball.y <= drainBottom) {
+          if (ball.x + ball.radius > this.width - 10) {
+            // Drains through the Right Gutter!
+            this.addSparks(this.width, ball.y, '#ff0055', 18);
+            this.shockwaves.push({
+              x: this.width - 8,
+              y: ball.y,
+              radius: 8,
+              maxRadius: 80,
+              color: '#ff0055',
+              alpha: 1.0,
+            });
+            soundSynth.playBallDrainSound();
+
+            this.balls.splice(bIdx, 1);
+
+            if (this.balls.length === 0 && (!this.stasisChamber.capturedBalls || this.stasisChamber.capturedBalls.length === 0)) {
+              this.triggerGameOver();
+            } else if (this.balls.length === 0 && this.stasisChamber.capturedBalls && this.stasisChamber.capturedBalls.length > 0) {
+              this.spawnCourtesyBall();
+            }
+            continue;
+          }
+        } else if (ball.y >= this.height * 0.16 && ball.y < drainTop) {
+          // Right-Top Bowing Elastic Rebound Arch
+          const t = (ball.y - this.height * 0.16) / (drainTop - this.height * 0.16);
+          const archX = (1 - t) * (1 - t) * (this.width - 14) + 2 * (1 - t) * t * rightArchControlX + t * t * (this.width - 14);
+          if (ball.x + ball.radius >= archX) {
+            ball.x = archX - ball.radius - 1;
+            ball.vx = -Math.max(7.5, Math.abs(ball.vx) * 1.25 + 3.5);
+            ball.vy += (t < 0.5 ? 1.5 : -1.5);
+            this.topFlairGlow = 1.0;
+            soundSynth.playElasticBumperSnap();
+            this.totalBumps++;
+            this.score += 150 * this.currentMultiplier;
+            this.addSparks(ball.x, ball.y, '#00f3ff', 8);
+          }
+        } else if (ball.y > drainBottom && ball.y <= this.height * 0.84) {
+          // Right-Bottom Bowing Elastic Rebound Arch
+          const t = (ball.y - drainBottom) / (this.height * 0.84 - drainBottom);
+          const archX = (1 - t) * (1 - t) * (this.width - 14) + 2 * (1 - t) * t * rightArchControlX + t * t * (this.width - 14);
+          if (ball.x + ball.radius >= archX) {
+            ball.x = archX - ball.radius - 1;
+            ball.vx = -Math.max(7.5, Math.abs(ball.vx) * 1.25 + 3.5);
+            ball.vy += (t < 0.5 ? 1.5 : -1.5);
+            this.bottomFlairGlow = 1.0;
+            soundSynth.playElasticBumperSnap();
+            this.totalBumps++;
+            this.score += 150 * this.currentMultiplier;
+            this.addSparks(ball.x, ball.y, '#ff0055', 8);
+          }
+        } else {
+          // Solid right corner wall bounce
+          if (ball.x + ball.radius > this.width - pad) {
+            ball.x = this.width - pad - ball.radius;
+            ball.vx = -ball.vx * this.restitution;
+            this.addSparks(ball.x, ball.y, ball.color, 4);
+          }
         }
       }
 
@@ -4353,221 +4656,348 @@ export class BumperQuestEngine {
       ctx.stroke();
     }
 
-    // 2. Left & Right Bottom Kinetic Vector Rebound Arches (leaving center open for narrowed Drain Gutter)
+    // 2. Dynamic Drains & Pac-Man Warp Tunnels (Swapped every 60s)
     const drainL = w * 0.43;
     const drainR = w * 0.57;
+    const drainT = h * 0.43;
+    const drainB = h * 0.57;
+
     const tunnelTop = h * 0.43;
     const tunnelBottom = h * 0.57;
+    const tunnelLeft = w * 0.43;
+    const tunnelRight = w * 0.57;
 
-    // Outer Perimeter Neon Boundaries (leaving gaps for Tunnels and Drains)
+    // Outer Perimeter Neon Boundaries
     ctx.strokeStyle = 'rgba(0, 243, 255, 0.4)';
     ctx.lineWidth = 2;
     ctx.shadowColor = '#00f3ff';
     ctx.shadowBlur = 6;
 
-    // Left Wall segments
-    ctx.beginPath();
-    ctx.moveTo(18, 18);
-    ctx.lineTo(18, tunnelTop);
-    ctx.moveTo(18, tunnelBottom);
-    ctx.lineTo(18, h - 18);
-    ctx.stroke();
-
-    // Right Wall segments
-    ctx.beginPath();
-    ctx.moveTo(w - 18, 18);
-    ctx.lineTo(w - 18, tunnelTop);
-    ctx.moveTo(w - 18, tunnelBottom);
-    ctx.lineTo(w - 18, h - 18);
-    ctx.stroke();
-
-    // Top Outer Wall segments (leaving opening for Bowing Elastic Bumpers & Drain)
-    ctx.beginPath();
-    ctx.moveTo(18, 18);
-    ctx.lineTo(w * 0.16, 14);
-    ctx.moveTo(w * 0.84, 14);
-    ctx.lineTo(w - 18, 18);
-    ctx.stroke();
-
-    // Bottom Outer Wall segments (symmetrically enclosing bottom corner pockets & leaving opening for Bowing Rebound Bumpers & Drain)
-    ctx.beginPath();
-    ctx.moveTo(18, h - 18);
-    ctx.lineTo(w * 0.16, h - 14);
-    ctx.moveTo(w * 0.84, h - 14);
-    ctx.lineTo(w - 18, h - 18);
-    ctx.stroke();
-
-    // 3. Top Gutter Drain Aperture [drainL to drainR]
-    ctx.save();
-    const topDrainGrad = ctx.createLinearGradient(0, 28, 0, 0);
-    topDrainGrad.addColorStop(0, 'rgba(255, 0, 85, 0)');
-    topDrainGrad.addColorStop(1, 'rgba(255, 0, 85, 0.45)');
-    ctx.fillStyle = topDrainGrad;
-    ctx.fillRect(drainL, 0, drainR - drainL, 28);
-
-    ctx.strokeStyle = 'rgba(255, 0, 85, 0.85)';
-    ctx.lineWidth = 2;
-    ctx.shadowColor = '#ff0055';
-    ctx.shadowBlur = 10;
-    ctx.strokeRect(drainL, 0, drainR - drainL, 8);
-
-    ctx.font = '700 8px "Press Start 2P", monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = `rgba(255, 0, 85, ${0.4 + 0.5 * Math.sin(time * 5)})`;
-    ctx.shadowBlur = 6;
-    ctx.fillText('▲ DRAIN ▲', w / 2, 18);
-    ctx.restore();
-
-    // 3.5. Top Kinetic Vector Rebound Arches (Bowing Elastic Bumpers)
-    const topGlow = this.topFlairGlow;
-    ctx.strokeStyle = topGlow > 0 ? '#ffffff' : '#00f3ff';
-    ctx.lineWidth = 2.5 + topGlow * 2.5;
-    ctx.shadowColor = topGlow > 0 ? '#00f3ff' : '#a855f7';
-    ctx.shadowBlur = 10 + topGlow * 18;
-
-    // Top-Left Bowing Elastic Rebound Arch
-    ctx.beginPath();
-    ctx.moveTo(w * 0.16, 14);
-    ctx.quadraticCurveTo(w * 0.30, 38 + topGlow * 12, drainL, 14);
-    ctx.stroke();
-
-    // Top-Right Bowing Elastic Rebound Arch
-    ctx.beginPath();
-    ctx.moveTo(drainR, 14);
-    ctx.quadraticCurveTo(w * 0.70, 38 + topGlow * 12, w * 0.84, 14);
-    ctx.stroke();
-
-    // Rubber tension bands behind top rebound arches
-    ctx.strokeStyle = 'rgba(0, 243, 255, 0.22)';
-    ctx.lineWidth = 1.2;
-    for (let i = 1; i <= 3; i++) {
-      const frac = i / 4;
-      const xL = w * 0.16 + (drainL - w * 0.16) * frac;
-      const yL = (1 - frac) * (1 - frac) * 14 + 2 * (1 - frac) * frac * (38 + topGlow * 12) + frac * frac * 14;
+    if (!this.isAxisSwapped) {
+      // STANDARD MODE: Left/Right = Tunnels, Top/Bottom = Gutter Drains & Bowing Elastic Bumpers
+      // Left Wall segments
       ctx.beginPath();
-      ctx.moveTo(xL, 8);
-      ctx.lineTo(xL, yL);
+      ctx.moveTo(18, 18);
+      ctx.lineTo(18, tunnelTop);
+      ctx.moveTo(18, tunnelBottom);
+      ctx.lineTo(18, h - 18);
       ctx.stroke();
 
-      const xR = drainR + (w * 0.84 - drainR) * frac;
-      const yR = (1 - frac) * (1 - frac) * 14 + 2 * (1 - frac) * frac * (38 + topGlow * 12) + frac * frac * 14;
+      // Right Wall segments
       ctx.beginPath();
-      ctx.moveTo(xR, 8);
-      ctx.lineTo(xR, yR);
+      ctx.moveTo(w - 18, 18);
+      ctx.lineTo(w - 18, tunnelTop);
+      ctx.moveTo(w - 18, tunnelBottom);
+      ctx.lineTo(w - 18, h - 18);
       ctx.stroke();
+
+      // Top Outer Wall segments
+      ctx.beginPath();
+      ctx.moveTo(18, 18);
+      ctx.lineTo(w * 0.16, 14);
+      ctx.moveTo(w * 0.84, 14);
+      ctx.lineTo(w - 18, 18);
+      ctx.stroke();
+
+      // Bottom Outer Wall segments
+      ctx.beginPath();
+      ctx.moveTo(18, h - 18);
+      ctx.lineTo(w * 0.16, h - 14);
+      ctx.moveTo(w * 0.84, h - 14);
+      ctx.lineTo(w - 18, h - 18);
+      ctx.stroke();
+
+      // Top Gutter Drain Aperture
+      ctx.save();
+      const topDrainGrad = ctx.createLinearGradient(0, 28, 0, 0);
+      topDrainGrad.addColorStop(0, 'rgba(255, 0, 85, 0)');
+      topDrainGrad.addColorStop(1, 'rgba(255, 0, 85, 0.45)');
+      ctx.fillStyle = topDrainGrad;
+      ctx.fillRect(drainL, 0, drainR - drainL, 28);
+
+      ctx.strokeStyle = 'rgba(255, 0, 85, 0.85)';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#ff0055';
+      ctx.shadowBlur = 10;
+      ctx.strokeRect(drainL, 0, drainR - drainL, 8);
+
+      ctx.font = '700 8px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(255, 0, 85, ${0.4 + 0.5 * Math.sin(time * 5)})`;
+      ctx.shadowBlur = 6;
+      ctx.fillText('▲ DRAIN ▲', w / 2, 18);
+      ctx.restore();
+
+      // Top Rebound Elastic Bumpers
+      const topGlow = this.topFlairGlow;
+      ctx.strokeStyle = topGlow > 0 ? '#ffffff' : '#00f3ff';
+      ctx.lineWidth = 2.5 + topGlow * 2.5;
+      ctx.shadowColor = topGlow > 0 ? '#00f3ff' : '#a855f7';
+      ctx.shadowBlur = 10 + topGlow * 18;
+
+      ctx.beginPath();
+      ctx.moveTo(w * 0.16, 14);
+      ctx.quadraticCurveTo(w * 0.30, 38 + topGlow * 12, drainL, 14);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(drainR, 14);
+      ctx.quadraticCurveTo(w * 0.70, 38 + topGlow * 12, w * 0.84, 14);
+      ctx.stroke();
+
+      // Bottom Rebound Elastic Bumpers
+      ctx.strokeStyle = glow > 0 ? '#ffffff' : '#ff0055';
+      ctx.lineWidth = 2.5 + glow * 2.5;
+      ctx.shadowColor = glow > 0 ? '#ff0055' : '#00f3ff';
+      ctx.shadowBlur = 10 + glow * 18;
+
+      ctx.beginPath();
+      ctx.moveTo(w * 0.16, h - 14);
+      ctx.quadraticCurveTo(w * 0.30, h - 38 - glow * 12, drainL, h - 14);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(drainR, h - 14);
+      ctx.quadraticCurveTo(w * 0.70, h - 38 - glow * 12, w * 0.84, h - 14);
+      ctx.stroke();
+
+      // Bottom Gutter Drain Aperture
+      ctx.save();
+      const drainGrad = ctx.createLinearGradient(0, h - 28, 0, h);
+      drainGrad.addColorStop(0, 'rgba(255, 0, 85, 0)');
+      drainGrad.addColorStop(1, 'rgba(255, 0, 85, 0.45)');
+      ctx.fillStyle = drainGrad;
+      ctx.fillRect(drainL, h - 28, drainR - drainL, 28);
+
+      ctx.strokeStyle = 'rgba(255, 0, 85, 0.85)';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#ff0055';
+      ctx.shadowBlur = 10;
+      ctx.strokeRect(drainL, h - 8, drainR - drainL, 8);
+
+      ctx.font = '700 8px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(255, 0, 85, ${0.4 + 0.5 * Math.sin(time * 5)})`;
+      ctx.shadowBlur = 6;
+      ctx.fillText('▼ DRAIN ▼', w / 2, h - 14);
+      ctx.restore();
+
+      // Left Warp Tunnel
+      ctx.save();
+      const lGrad = ctx.createLinearGradient(0, 0, 24, 0);
+      lGrad.addColorStop(0, 'rgba(0, 243, 255, 0.45)');
+      lGrad.addColorStop(1, 'rgba(0, 243, 255, 0)');
+      ctx.fillStyle = lGrad;
+      ctx.fillRect(0, tunnelTop, 24, tunnelBottom - tunnelTop);
+
+      ctx.strokeStyle = '#00f3ff';
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = '#00f3ff';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.moveTo(18, tunnelTop);
+      ctx.lineTo(0, tunnelTop + 8);
+      ctx.moveTo(18, tunnelBottom);
+      ctx.lineTo(0, tunnelBottom - 8);
+      ctx.stroke();
+
+      ctx.font = '700 8px "Press Start 2P", monospace';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = `rgba(0, 243, 255, ${0.5 + 0.4 * Math.sin(time * 6)})`;
+      ctx.fillText('◀ TUNNEL', 4, (tunnelTop + tunnelBottom) / 2 + 3);
+      ctx.restore();
+
+      // Right Warp Tunnel
+      ctx.save();
+      const rGrad = ctx.createLinearGradient(w, 0, w - 24, 0);
+      rGrad.addColorStop(0, 'rgba(255, 0, 170, 0.45)');
+      rGrad.addColorStop(1, 'rgba(255, 0, 170, 0)');
+      ctx.fillStyle = rGrad;
+      ctx.fillRect(w - 24, tunnelTop, 24, tunnelBottom - tunnelTop);
+
+      ctx.strokeStyle = '#ff00aa';
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = '#ff00aa';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.moveTo(w - 18, tunnelTop);
+      ctx.lineTo(w, tunnelTop + 8);
+      ctx.moveTo(w - 18, tunnelBottom);
+      ctx.lineTo(w, tunnelBottom - 8);
+      ctx.stroke();
+
+      ctx.font = '700 8px "Press Start 2P", monospace';
+      ctx.textAlign = 'right';
+      ctx.fillStyle = `rgba(255, 0, 170, ${0.5 + 0.4 * Math.sin(time * 6)})`;
+      ctx.fillText('TUNNEL ▶', w - 4, (tunnelTop + tunnelBottom) / 2 + 3);
+      ctx.restore();
+    } else {
+      // SWAPPED MODE: Top/Bottom = Warp Tunnels, Left/Right = Gutter Drains & Bowing Elastic Bumpers!
+      // Top Wall segments
+      ctx.beginPath();
+      ctx.moveTo(18, 18);
+      ctx.lineTo(tunnelLeft, 18);
+      ctx.moveTo(tunnelRight, 18);
+      ctx.lineTo(w - 18, 18);
+      ctx.stroke();
+
+      // Bottom Wall segments
+      ctx.beginPath();
+      ctx.moveTo(18, h - 18);
+      ctx.lineTo(tunnelLeft, h - 18);
+      ctx.moveTo(tunnelRight, h - 18);
+      ctx.lineTo(w - 18, h - 18);
+      ctx.stroke();
+
+      // Left Outer Wall segments
+      ctx.beginPath();
+      ctx.moveTo(18, 18);
+      ctx.lineTo(14, h * 0.16);
+      ctx.moveTo(14, h * 0.84);
+      ctx.lineTo(18, h - 18);
+      ctx.stroke();
+
+      // Right Outer Wall segments
+      ctx.beginPath();
+      ctx.moveTo(w - 18, 18);
+      ctx.lineTo(w - 14, h * 0.16);
+      ctx.moveTo(w - 14, h * 0.84);
+      ctx.lineTo(w - 18, h - 18);
+      ctx.stroke();
+
+      // Left Gutter Drain Aperture
+      ctx.save();
+      const leftDrainGrad = ctx.createLinearGradient(28, 0, 0, 0);
+      leftDrainGrad.addColorStop(0, 'rgba(255, 0, 85, 0)');
+      leftDrainGrad.addColorStop(1, 'rgba(255, 0, 85, 0.45)');
+      ctx.fillStyle = leftDrainGrad;
+      ctx.fillRect(0, drainT, 28, drainB - drainT);
+
+      ctx.strokeStyle = 'rgba(255, 0, 85, 0.85)';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#ff0055';
+      ctx.shadowBlur = 10;
+      ctx.strokeRect(0, drainT, 8, drainB - drainT);
+
+      ctx.save();
+      ctx.translate(14, (drainT + drainB) / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.font = '700 8px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(255, 0, 85, ${0.4 + 0.5 * Math.sin(time * 5)})`;
+      ctx.shadowBlur = 6;
+      ctx.fillText('◀ DRAIN ◀', 0, 0);
+      ctx.restore();
+      ctx.restore();
+
+      // Left Bowing Elastic Bumpers
+      const leftGlow = this.topFlairGlow;
+      ctx.strokeStyle = leftGlow > 0 ? '#ffffff' : '#00f3ff';
+      ctx.lineWidth = 2.5 + leftGlow * 2.5;
+      ctx.shadowColor = leftGlow > 0 ? '#00f3ff' : '#a855f7';
+      ctx.shadowBlur = 10 + leftGlow * 18;
+
+      ctx.beginPath();
+      ctx.moveTo(14, h * 0.16);
+      ctx.quadraticCurveTo(38 + leftGlow * 12, h * 0.30, 14, drainT);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(14, drainB);
+      ctx.quadraticCurveTo(38 + leftGlow * 12, h * 0.70, 14, h * 0.84);
+      ctx.stroke();
+
+      // Right Bowing Elastic Bumpers
+      ctx.strokeStyle = glow > 0 ? '#ffffff' : '#ff0055';
+      ctx.lineWidth = 2.5 + glow * 2.5;
+      ctx.shadowColor = glow > 0 ? '#ff0055' : '#00f3ff';
+      ctx.shadowBlur = 10 + glow * 18;
+
+      ctx.beginPath();
+      ctx.moveTo(w - 14, h * 0.16);
+      ctx.quadraticCurveTo(w - 38 - glow * 12, h * 0.30, w - 14, drainT);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(w - 14, drainB);
+      ctx.quadraticCurveTo(w - 38 - glow * 12, h * 0.70, w - 14, h * 0.84);
+      ctx.stroke();
+
+      // Right Gutter Drain Aperture
+      ctx.save();
+      const rightDrainGrad = ctx.createLinearGradient(w - 28, 0, w, 0);
+      rightDrainGrad.addColorStop(0, 'rgba(255, 0, 85, 0)');
+      rightDrainGrad.addColorStop(1, 'rgba(255, 0, 85, 0.45)');
+      ctx.fillStyle = rightDrainGrad;
+      ctx.fillRect(w - 28, drainT, 28, drainB - drainT);
+
+      ctx.strokeStyle = 'rgba(255, 0, 85, 0.85)';
+      ctx.lineWidth = 2;
+      ctx.shadowColor = '#ff0055';
+      ctx.shadowBlur = 10;
+      ctx.strokeRect(w - 8, drainT, 8, drainB - drainT);
+
+      ctx.save();
+      ctx.translate(w - 14, (drainT + drainB) / 2);
+      ctx.rotate(Math.PI / 2);
+      ctx.font = '700 8px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(255, 0, 85, ${0.4 + 0.5 * Math.sin(time * 5)})`;
+      ctx.shadowBlur = 6;
+      ctx.fillText('▶ DRAIN ▶', 0, 0);
+      ctx.restore();
+      ctx.restore();
+
+      // Top Warp Tunnel
+      ctx.save();
+      const tGrad = ctx.createLinearGradient(0, 0, 0, 24);
+      tGrad.addColorStop(0, 'rgba(0, 243, 255, 0.45)');
+      tGrad.addColorStop(1, 'rgba(0, 243, 255, 0)');
+      ctx.fillStyle = tGrad;
+      ctx.fillRect(tunnelLeft, 0, tunnelRight - tunnelLeft, 24);
+
+      ctx.strokeStyle = '#00f3ff';
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = '#00f3ff';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.moveTo(tunnelLeft, 18);
+      ctx.lineTo(tunnelLeft + 8, 0);
+      ctx.moveTo(tunnelRight, 18);
+      ctx.lineTo(tunnelRight - 8, 0);
+      ctx.stroke();
+
+      ctx.font = '700 8px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(0, 243, 255, ${0.5 + 0.4 * Math.sin(time * 6)})`;
+      ctx.fillText('▲ TUNNEL ▲', w / 2, 14);
+      ctx.restore();
+
+      // Bottom Warp Tunnel
+      ctx.save();
+      const bGrad = ctx.createLinearGradient(0, h, 0, h - 24);
+      bGrad.addColorStop(0, 'rgba(255, 0, 170, 0.45)');
+      bGrad.addColorStop(1, 'rgba(255, 0, 170, 0)');
+      ctx.fillStyle = bGrad;
+      ctx.fillRect(tunnelLeft, h - 24, tunnelRight - tunnelLeft, 24);
+
+      ctx.strokeStyle = '#ff00aa';
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = '#ff00aa';
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.moveTo(tunnelLeft, h - 18);
+      ctx.lineTo(tunnelLeft + 8, h);
+      ctx.moveTo(tunnelRight, h - 18);
+      ctx.lineTo(tunnelRight - 8, h);
+      ctx.stroke();
+
+      ctx.font = '700 8px "Press Start 2P", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = `rgba(255, 0, 170, ${0.5 + 0.4 * Math.sin(time * 6)})`;
+      ctx.fillText('▼ TUNNEL ▼', w / 2, h - 10);
+      ctx.restore();
     }
-
-    // 4. Bottom Kinetic Vector Rebound Arches (Bowing Elastic Bumpers)
-    ctx.strokeStyle = glow > 0 ? '#ffffff' : '#ff0055';
-    ctx.lineWidth = 2.5 + glow * 2.5;
-    ctx.shadowColor = glow > 0 ? '#ff0055' : '#00f3ff';
-    ctx.shadowBlur = 10 + glow * 18;
-
-    // Left Rebound Wall
-    ctx.beginPath();
-    ctx.moveTo(w * 0.16, h - 14);
-    ctx.quadraticCurveTo(w * 0.30, h - 38 - glow * 12, drainL, h - 14);
-    ctx.stroke();
-
-    // Right Rebound Wall
-    ctx.beginPath();
-    ctx.moveTo(drainR, h - 14);
-    ctx.quadraticCurveTo(w * 0.70, h - 38 - glow * 12, w * 0.84, h - 14);
-    ctx.stroke();
-
-    // Rubber tension bands behind bottom rebound arches
-    ctx.strokeStyle = 'rgba(255, 0, 85, 0.22)';
-    ctx.lineWidth = 1.2;
-    for (let i = 1; i <= 3; i++) {
-      const frac = i / 4;
-      const xL = w * 0.16 + (drainL - w * 0.16) * frac;
-      const yL = (1 - frac) * (1 - frac) * (h - 14) + 2 * (1 - frac) * frac * (h - 38 - glow * 12) + frac * frac * (h - 14);
-      ctx.beginPath();
-      ctx.moveTo(xL, h - 8);
-      ctx.lineTo(xL, yL);
-      ctx.stroke();
-
-      const xR = drainR + (w * 0.84 - drainR) * frac;
-      const yR = (1 - frac) * (1 - frac) * (h - 14) + 2 * (1 - frac) * frac * (h - 38 - glow * 12) + frac * frac * (h - 14);
-      ctx.beginPath();
-      ctx.moveTo(xR, h - 8);
-      ctx.lineTo(xR, yR);
-      ctx.stroke();
-    }
-
-    // 5. Center Bottom Gutter Drain Aperture [drainL to drainR] (50% narrower!)
-    ctx.save();
-    const drainGrad = ctx.createLinearGradient(0, h - 28, 0, h);
-    drainGrad.addColorStop(0, 'rgba(255, 0, 85, 0)');
-    drainGrad.addColorStop(1, 'rgba(255, 0, 85, 0.45)');
-    ctx.fillStyle = drainGrad;
-    ctx.fillRect(drainL, h - 28, drainR - drainL, 28);
-
-    // Hazard neon border across drain mouth
-    ctx.strokeStyle = 'rgba(255, 0, 85, 0.85)';
-    ctx.lineWidth = 2;
-    ctx.shadowColor = '#ff0055';
-    ctx.shadowBlur = 10;
-    ctx.strokeRect(drainL, h - 8, drainR - drainL, 8);
-
-    // Animated downward hazard chevrons: ▼ DRAIN ▼
-    ctx.font = '700 8px "Press Start 2P", monospace';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = `rgba(255, 0, 85, ${0.4 + 0.5 * Math.sin(time * 5)})`;
-    ctx.shadowBlur = 6;
-    ctx.fillText('▼ DRAIN ▼', w / 2, h - 14);
-    ctx.restore();
-
-    // 6. Pac-Man Side Warp Tunnels
-    // Left Portal
-    ctx.save();
-    const lGrad = ctx.createLinearGradient(0, 0, 24, 0);
-    lGrad.addColorStop(0, 'rgba(0, 243, 255, 0.45)');
-    lGrad.addColorStop(1, 'rgba(0, 243, 255, 0)');
-    ctx.fillStyle = lGrad;
-    ctx.fillRect(0, tunnelTop, 24, tunnelBottom - tunnelTop);
-
-    ctx.strokeStyle = '#00f3ff';
-    ctx.lineWidth = 2.5;
-    ctx.shadowColor = '#00f3ff';
-    ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.moveTo(18, tunnelTop);
-    ctx.lineTo(0, tunnelTop + 8);
-    ctx.moveTo(18, tunnelBottom);
-    ctx.lineTo(0, tunnelBottom - 8);
-    ctx.stroke();
-
-    ctx.font = '700 8px "Press Start 2P", monospace';
-    ctx.textAlign = 'left';
-    ctx.fillStyle = `rgba(0, 243, 255, ${0.5 + 0.4 * Math.sin(time * 6)})`;
-    ctx.fillText('◀ TUNNEL', 4, (tunnelTop + tunnelBottom) / 2 + 3);
-    ctx.restore();
-
-    // Right Portal
-    ctx.save();
-    const rGrad = ctx.createLinearGradient(w, 0, w - 24, 0);
-    rGrad.addColorStop(0, 'rgba(255, 0, 170, 0.45)');
-    rGrad.addColorStop(1, 'rgba(255, 0, 170, 0)');
-    ctx.fillStyle = rGrad;
-    ctx.fillRect(w - 24, tunnelTop, 24, tunnelBottom - tunnelTop);
-
-    ctx.strokeStyle = '#ff00aa';
-    ctx.lineWidth = 2.5;
-    ctx.shadowColor = '#ff00aa';
-    ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.moveTo(w - 18, tunnelTop);
-    ctx.lineTo(w, tunnelTop + 8);
-    ctx.moveTo(w - 18, tunnelBottom);
-    ctx.lineTo(w, tunnelBottom - 8);
-    ctx.stroke();
-
-    ctx.font = '700 8px "Press Start 2P", monospace';
-    ctx.textAlign = 'right';
-    ctx.fillStyle = `rgba(255, 0, 170, ${0.5 + 0.4 * Math.sin(time * 6)})`;
-    ctx.fillText('TUNNEL ▶', w - 4, (tunnelTop + tunnelBottom) / 2 + 3);
-    ctx.restore();
 
     // 7. Corner Vector Outlane Guide Rails (Curved rails guiding balls into each flipper)
     for (const f of this.flippers) {

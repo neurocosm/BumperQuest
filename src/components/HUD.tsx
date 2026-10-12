@@ -42,6 +42,8 @@ interface HUDProps {
   dotsTotal?: number;
   gameState?: 'playing' | 'wave_cleared' | 'game_over';
   stateCountdown?: number;
+  isAxisSwapped?: boolean;
+  axisSwapTimer?: number;
   onRestartRound?: () => void;
   onToggleMute: () => void;
   onToggleIntroMusic?: () => void;
@@ -78,6 +80,8 @@ export const HUD: React.FC<HUDProps> = ({
   dotsTotal = 32,
   gameState = 'playing',
   stateCountdown = 0,
+  isAxisSwapped = false,
+  axisSwapTimer = 60,
   onRestartRound,
   onToggleMute,
   onToggleIntroMusic,
@@ -252,6 +256,31 @@ export const HUD: React.FC<HUDProps> = ({
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
             <span className="font-bold">{dotsRemaining}</span>
             <span className="hidden sm:inline text-emerald-400/60">/{dotsTotal}</span>
+          </div>
+
+          <span className="text-slate-600 text-xs hidden sm:inline">•</span>
+
+          {/* Dimensional Matrix Swap Badge (Every 60s) */}
+          <div
+            title={
+              isAxisSwapped
+                ? `SWAPPED MATRIX: Sides = Gutter Drain | Vertical = Warp Portals! Swapping back in ${axisSwapTimer}s.`
+                : `STANDARD MATRIX: Top/Bottom = Gutter Drain | Sides = Warp Portals. Swapping in ${axisSwapTimer}s.`
+            }
+            className={`hidden sm:flex items-center gap-1 px-1.5 py-0.5 rounded border text-[8px] sm:text-[8.5px] font-mono font-bold transition-all ${
+              axisSwapTimer <= 3
+                ? 'bg-rose-950/70 border-rose-400 text-rose-300 animate-pulse'
+                : isAxisSwapped
+                ? 'bg-pink-950/50 border-pink-500/40 text-pink-300'
+                : 'bg-cyan-950/50 border-cyan-500/40 text-cyan-300'
+            }`}
+          >
+            <span className="tracking-tighter">
+              {isAxisSwapped ? 'SWAP: SIDE-DRAIN' : 'MATRIX: TOP-DRAIN'}
+            </span>
+            <span className="px-1 rounded bg-black/50 text-[7.5px] text-white/90 font-mono">
+              {axisSwapTimer}s
+            </span>
           </div>
 
           {highScore > 0 && (

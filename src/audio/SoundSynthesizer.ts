@@ -1215,6 +1215,69 @@ class SoundSynthesizer {
     }
   }
 
+  /**
+   * Subtle high-tech warning beep for dimensional shift countdown (3... 2... 1...)
+   */
+  public playSwapWarningBeep(step: number = 1) {
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    this.ensureRunning();
+
+    try {
+      const now = this.ctx.currentTime;
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(440 + step * 120, now);
+
+      gain.gain.setValueAtTime(0.01, now);
+      gain.gain.linearRampToValueAtTime(0.12, now + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(now);
+      osc.stop(now + 0.08);
+    } catch {
+      // Ignored
+    }
+  }
+
+  /**
+   * Dimensional Portal & Drain Axis Swap audio cue (cosmic harmonic chord + vinyl sweep)
+   */
+  public playDimensionalSwapSound() {
+    if (!this.ctx || !this.masterGain || this.isMuted) return;
+    this.ensureRunning();
+
+    try {
+      const now = this.ctx.currentTime;
+      const freqs = [329.63, 440.0, 554.37, 659.25]; // E major chord
+      freqs.forEach((freq, idx) => {
+        if (!this.ctx || !this.masterGain) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(freq * 0.75, now);
+        osc.frequency.exponentialRampToValueAtTime(freq * 1.5, now + 0.28);
+
+        gain.gain.setValueAtTime(0.01, now);
+        gain.gain.linearRampToValueAtTime(0.18, now + 0.02 + idx * 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+
+        osc.connect(gain);
+        gain.connect(this.masterGain);
+
+        osc.start(now);
+        osc.stop(now + 0.35);
+      });
+    } catch {
+      // Ignored
+    }
+  }
+
   public setMute(muted: boolean) {
     this.isMuted = muted;
     if (this.masterGain && this.ctx) {

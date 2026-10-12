@@ -34,6 +34,8 @@ export const App: React.FC = () => {
   const [dotsTotal, setDotsTotal] = useState(32);
   const [gameState, setGameState] = useState<'playing' | 'wave_cleared' | 'game_over'>('playing');
   const [stateCountdown, setStateCountdown] = useState(0);
+  const [isAxisSwapped, setIsAxisSwapped] = useState(false);
+  const [axisSwapTimer, setAxisSwapTimer] = useState(60);
 
   // Settings
   const [settings, setSettings] = useState<GameSettings>({
@@ -164,6 +166,8 @@ export const App: React.FC = () => {
         setGameState(engineRef.current.gameState);
         setStateCountdown(engineRef.current.stateCountdown);
         setLitMultiplierCount(engineRef.current.litMultiplierIds.size);
+        setIsAxisSwapped(engineRef.current.isAxisSwapped);
+        setAxisSwapTimer(Math.ceil(engineRef.current.axisSwapTimer));
 
         if (engineRef.current.score > highScore) {
           setHighScore(engineRef.current.score);
@@ -658,6 +662,8 @@ export const App: React.FC = () => {
         dotsTotal={dotsTotal}
         gameState={gameState}
         stateCountdown={stateCountdown}
+        isAxisSwapped={isAxisSwapped}
+        axisSwapTimer={axisSwapTimer}
         onRestartRound={() => engineRef.current?.autoRestartGame()}
         onToggleMute={handleToggleMute}
         onToggleIntroMusic={handleToggleIntroMusic}
